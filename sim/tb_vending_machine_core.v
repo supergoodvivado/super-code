@@ -125,6 +125,9 @@ module tb_vending_machine_core;
         end
     endtask
 
+    integer phase;
+    integer populated;
+
     initial begin
         clk = 1'b0;
         reset = 1'b1;
@@ -208,6 +211,66 @@ module tb_vending_machine_core;
         pulse_change();
         expect_state(ST_IDLE);
         expect_amount(8'd0, 8'd0, 8'd0);
+
+        // Exercise both selection pages, with and without a committed order.
+        for (phase = 0; phase < 2; phase = phase + 1) begin
+            for (populated = 0; populated < 2; populated = populated + 1) begin
+                sw = 4'h4;
+                pulse_product();
+                if (populated != 0) begin
+                    pulse_product();
+                    sw = 4'd0;
+                    pulse_product();
+                    pulse_product();
+                end
+                if (phase != 0) pulse_product();
+                pulse_change();
+                expect_state(populated != 0 ? ST_ORDER_READY : ST_IDLE);
+                expect_amount(populated != 0 ? 8'd10 : 8'd0, 8'd0, 8'd0);
+                if (populated != 0) pulse_cancel();
+                expect_state(ST_IDLE);
+
+                sw = 4'h4;
+                pulse_product();
+                if (populated != 0) begin
+                    pulse_product();
+                    sw = 4'd0;
+                    pulse_product();
+                    pulse_product();
+                end
+                if (phase != 0) pulse_product();
+                pulse_cancel();
+                expect_state(ST_SELECT_PRODUCT);
+                expect_amount(8'd0, 8'd0, 8'd0);
+                if (selected_count !== 0 || dut.has_item1 !== 0 ||
+                    dut.has_item2 !== 0 || dut.pending_code !== 0) begin
+                    $display("ERROR: KEY4 did not clear the order");
+                    $finish;
+                end
+                pulse_cancel();
+                expect_state(ST_IDLE);
+            end
+        end
+
+        // Selecting again after clearing starts a fresh two-press cancel sequence.
+        pulse_product();
+        pulse_cancel();
+        sw = 4'h2;
+        pulse_product();
+        expect_state(ST_SELECT_QTY);
+        pulse_cancel();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_product();
+        sw = 4'd0;
+        pulse_product();
+        expect_state(ST_ORDER_READY);
+        expect_amount(8'd6, 8'd0, 8'd0);
+        if (selected_count !== 1) begin
+            $display("ERROR: stale order after clearing");
+            $finish;
+        end
+        pulse_cancel();
+        expect_state(ST_IDLE);
 
         $display("PASS: vending machine core simulation completed.");
         $finish;
