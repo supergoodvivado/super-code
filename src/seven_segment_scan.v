@@ -25,7 +25,9 @@ module seven_segment_scan #(
     wire [7:0] aux_amount;
 
     assign scan_index = refresh_count[REFRESH_BITS-1:REFRESH_BITS-3];
-    assign aux_amount = (state == 3'd6) ? change_due : paid_amount;
+    // change_due is also the reusable balance when a new order starts from
+    // the change state.  During payment, include newly inserted money.
+    assign aux_amount = (state == 3'd4) ? (change_due + paid_amount) : change_due;
 
     function [3:0] tens_digit;
         input [7:0] value;
@@ -112,11 +114,11 @@ module seven_segment_scan #(
             end
             3'd6: begin
                 sel_active_high = 8'b0100_0000;
-                digit = (state >= 3'd3) ? tens_digit(aux_amount) : 4'd0;
+                digit = (state != 3'd0) ? tens_digit(aux_amount) : 4'd0;
             end
             default: begin
                 sel_active_high = 8'b1000_0000;
-                digit = (state >= 3'd3) ? ones_digit(aux_amount) : 4'd0;
+                digit = (state != 3'd0) ? ones_digit(aux_amount) : 4'd0;
             end
         endcase
 

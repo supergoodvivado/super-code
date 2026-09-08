@@ -148,10 +148,9 @@
     <text x="1435" y="1012" class="card-title">ST_CHANGE</text>
     <text x="1435" y="1054" class="card-line">• change_due = 0</text>
     <text x="1465" y="1094" class="card-line">→ 清空交易并进入 ST_IDLE</text>
-    <text x="1435" y="1134" class="card-line">• KEY3：change_due 减 1</text>
-    <text x="1435" y="1174" class="card-line">• 减完后仍有余额</text>
-    <text x="1465" y="1214" class="card-line">→ 留在 ST_CHANGE</text>
-    <text x="1435" y="1254" class="card-line">• 退最后一元 → ST_IDLE</text>
+    <text x="1435" y="1134" class="card-line">• KEY1 → ST_SELECT_PRODUCT（保留余额）</text>
+    <text x="1435" y="1174" class="card-line">• KEY3：余额减 1；余额为 0 时 → ST_IDLE</text>
+    <text x="1435" y="1214" class="card-line">• 退最后一元 → ST_IDLE</text>
   </g>
 
   <!-- Legend -->

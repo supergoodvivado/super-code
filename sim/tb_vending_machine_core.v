@@ -227,6 +227,61 @@ module tb_vending_machine_core;
         expect_state(ST_IDLE);
         expect_amount(8'd0, 8'd0, 8'd0);
 
+        // Retain 4 yuan change as a balance, then use it for a new order.
+        // A13 x1 costs 6 yuan; 10 yuan leaves a 4 yuan balance.
+        sw = 4'h2;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0000;
+        pulse_product();
+        pulse_confirm();
+        sw = 4'b0001;
+        pulse_confirm();
+        expect_state(ST_VEND);
+        expect_amount(8'd6, 8'd0, 8'd4);
+        wait_cycles(5);
+        expect_state(ST_CHANGE);
+
+        // KEY1 starts another selection but preserves the 4 yuan balance.
+        // A11 x1 costs 3, so confirmation deducts the balance and vends
+        // immediately, leaving 1 yuan for the following order.
+        sw = 4'h0;
+        pulse_product();
+        expect_state(ST_SELECT_PRODUCT);
+        expect_amount(8'd0, 8'd0, 8'd4);
+        pulse_product();
+        sw = 4'b0000;
+        pulse_product();
+        expect_state(ST_ORDER_READY);
+        expect_amount(8'd3, 8'd0, 8'd4);
+        pulse_confirm();
+        expect_state(ST_VEND);
+        expect_amount(8'd3, 8'd0, 8'd1);
+        wait_cycles(5);
+        expect_state(ST_CHANGE);
+
+        // A12 x1 costs 4.  The retained 1 yuan is insufficient, so three
+        // more 1-yuan coins complete the payment.
+        sw = 4'h1;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0000;
+        pulse_product();
+        expect_state(ST_ORDER_READY);
+        expect_amount(8'd4, 8'd0, 8'd1);
+        pulse_confirm();
+        expect_state(ST_PAY);
+        expect_amount(8'd4, 8'd0, 8'd1);
+        pulse_product();
+        expect_amount(8'd4, 8'd1, 8'd1);
+        pulse_product();
+        expect_amount(8'd4, 8'd2, 8'd1);
+        pulse_product();
+        expect_state(ST_VEND);
+        expect_amount(8'd4, 8'd0, 8'd0);
+        wait_cycles(5);
+        expect_state(ST_IDLE);
+
         // KEY3 returns from first-product selection to idle.
         sw = 4'h4;
         pulse_product();
