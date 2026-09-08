@@ -19,7 +19,8 @@ module vending_machine_core #(
     output reg [7:0] paid_amount,
     output reg [7:0] change_due,
     output reg vend_pulse,
-    output reg return_coin_pulse
+    output reg return_coin_pulse,
+    output reg selection_full_pulse
 );
 
     localparam ST_IDLE           = 3'd0;
@@ -30,7 +31,6 @@ module vending_machine_core #(
     localparam ST_VEND           = 3'd5;
     localparam ST_CHANGE         = 3'd6;
 
-    reg selection_cleared;
     reg has_item1;
     reg has_item2;
     reg [3:0] item1_code;
@@ -110,7 +110,6 @@ module vending_machine_core #(
 
     task clear_transaction;
         begin
-            selection_cleared <= 1'b0;
             has_item1 <= 1'b0;
             has_item2 <= 1'b0;
             item1_code <= 4'd0;
@@ -127,15 +126,52 @@ module vending_machine_core #(
         end
     endtask
 
-    // First KEY4 clears the order; another KEY4 leaves the selection page.
-    task cancel_selection;
+    // Clear an unfinished order while retaining change_due as the customer's
+    // reusable balance.  This is used when KEY1 starts a new order from the
+    // change state.
+    task clear_order_keep_balance;
         begin
-            clear_transaction();
-            if (selection_cleared) begin
-                state <= ST_IDLE;
+            has_item1 <= 1'b0;
+            has_item2 <= 1'b0;
+            item1_code <= 4'd0;
+            item2_code <= 4'd0;
+            item1_qty <= 2'd0;
+            item2_qty <= 2'd0;
+            selected_count <= 2'd0;
+            total_due <= 8'd0;
+            paid_amount <= 8'd0;
+            pending_code <= 4'd0;
+            current_product_code <= 4'd0;
+            current_quantity <= 2'd0;
+        end
+    endtask
+
+    // At order confirmation, a retained balance may pay for the order
+    // immediately.  Otherwise enter payment and accumulate new money there.
+    task confirm_order;
+        begin
+            paid_amount <= 8'd0;
+            if (change_due >= total_due) begin
+                change_due <= change_due - total_due;
+                vend_counter <= (VEND_TICKS > 0) ? (VEND_TICKS - 1) : 0;
+                vend_pulse <= 1'b1;
+                state <= ST_VEND;
             end else begin
-                selection_cleared <= 1'b1;
-                state <= ST_SELECT_PRODUCT;
+                state <= ST_PAY;
+            end
+        end
+    endtask
+
+    // KEY4 discards the unfinished order.  Any retained balance is moved to
+    // the refund state; without a balance the machine simply returns idle.
+    task cancel_order;
+        begin
+            if (change_due != 8'd0) begin
+                clear_order_keep_balance();
+                state <= ST_CHANGE;
+            end else begin
+                clear_transaction();
+                state <= ST_IDLE;
             end
         end
     endtask
@@ -174,7 +210,6 @@ module vending_machine_core #(
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             state <= ST_IDLE;
-            selection_cleared <= 1'b0;
             has_item1 <= 1'b0;
             has_item2 <= 1'b0;
             item1_code <= 4'd0;
@@ -191,9 +226,11 @@ module vending_machine_core #(
             vend_counter <= 32'd0;
             vend_pulse <= 1'b0;
             return_coin_pulse <= 1'b0;
+            selection_full_pulse <= 1'b0;
         end else begin
             vend_pulse <= 1'b0;
             return_coin_pulse <= 1'b0;
+            selection_full_pulse <= 1'b0;
 
             case (state)
                 ST_IDLE: begin
@@ -208,25 +245,27 @@ module vending_machine_core #(
                     current_product_code <= sw;
                     current_quantity <= 2'd0;
                     paid_amount <= 8'd0;
-                    change_due <= 8'd0;
 
                     if (key_cancel_pulse) begin
-                        cancel_selection();
+                        cancel_order();
                     end else if (key_change_pulse) begin
-                        selection_cleared <= 1'b0;
-                        if (total_due == 8'd0) begin
-                            clear_transaction();
-                            state <= ST_IDLE;
+                        // While choosing item 1, KEY3 has the same cancel
+                        // behavior as KEY4.  While choosing item 2, it
+                        // restores the confirmation of item 1.
+                        if (selected_count == 2'd0) begin
+                            cancel_order();
                         end else begin
+                            pending_code <= item1_code;
+                            current_product_code <= item1_code;
+                            current_quantity <= item1_qty;
                             state <= ST_ORDER_READY;
                         end
                     end else if (key_product_pulse) begin
-                        selection_cleared <= 1'b0;
                         pending_code <= sw;
                         current_product_code <= sw;
                         state <= ST_SELECT_QTY;
                     end else if (key_confirm_pulse && (total_due != 8'd0)) begin
-                        state <= ST_PAY;
+                        confirm_order();
                     end
                 end
 
@@ -235,10 +274,13 @@ module vending_machine_core #(
                     current_quantity <= qty_from_switch(sw[1:0]);
 
                     if (key_cancel_pulse) begin
-                        cancel_selection();
+                        cancel_order();
                     end else if (key_change_pulse) begin
-                        selection_cleared <= 1'b0;
-                        state <= (total_due == 8'd0) ? ST_IDLE : ST_ORDER_READY;
+                        // KEY3 returns to product selection before an item is
+                        // committed, so the product can be chosen again.
+                        current_product_code <= sw;
+                        current_quantity <= 2'd0;
+                        state <= ST_SELECT_PRODUCT;
                     end else if (key_product_pulse) begin
                         commit_selection();
                         state <= ST_ORDER_READY;
@@ -247,33 +289,50 @@ module vending_machine_core #(
 
                 ST_ORDER_READY: begin
                     paid_amount <= 8'd0;
-                    change_due <= 8'd0;
 
                     if (key_cancel_pulse) begin
-                        clear_transaction();
-                        state <= ST_IDLE;
+                        cancel_order();
+                    end else if (key_change_pulse) begin
+                        // KEY3 reopens the quantity page for the last item.
+                        // Existing commit logic then replaces that quantity.
+                        if (has_item2) begin
+                            pending_code <= item2_code;
+                            current_product_code <= item2_code;
+                            current_quantity <= item2_qty;
+                        end else begin
+                            pending_code <= item1_code;
+                            current_product_code <= item1_code;
+                            current_quantity <= item1_qty;
+                        end
+                        state <= ST_SELECT_QTY;
                     end else if (key_product_pulse) begin
-                        current_product_code <= sw;
-                        current_quantity <= 2'd0;
-                        state <= ST_SELECT_PRODUCT;
+                        if (selected_count == 2'd2) begin
+                            selection_full_pulse <= 1'b1;
+                        end else begin
+                            current_product_code <= sw;
+                            current_quantity <= 2'd0;
+                            state <= ST_SELECT_PRODUCT;
+                        end
                     end else if (key_confirm_pulse && (total_due != 8'd0)) begin
-                        state <= ST_PAY;
+                        confirm_order();
                     end
                 end
 
                 ST_PAY: begin
                     if (key_cancel_pulse) begin
-                        change_due <= paid_amount;
+                        money_next = change_due + paid_amount;
                         paid_amount <= 8'd0;
-                        state <= (paid_amount == 8'd0) ? ST_IDLE : ST_CHANGE;
-                        if (paid_amount == 8'd0) begin
+                        state <= (money_next == 8'd0) ? ST_IDLE : ST_CHANGE;
+                        if (money_next == 8'd0) begin
                             clear_transaction();
+                        end else begin
+                            change_due <= money_next;
                         end
                     end else if (key_change_pulse && (paid_amount != 8'd0)) begin
                         paid_amount <= paid_amount - 8'd1;
                         return_coin_pulse <= 1'b1;
                     end else if (key_product_pulse) begin
-                        money_next = paid_amount + 8'd1;
+                        money_next = change_due + paid_amount + 8'd1;
                         if (money_next >= total_due) begin
                             paid_amount <= 8'd0;
                             change_due <= money_next - total_due;
@@ -281,10 +340,10 @@ module vending_machine_core #(
                             vend_pulse <= 1'b1;
                             state <= ST_VEND;
                         end else begin
-                            paid_amount <= money_next;
+                            paid_amount <= paid_amount + 8'd1;
                         end
                     end else if (key_confirm_pulse) begin
-                        money_next = paid_amount + bill_value(sw[1:0]);
+                        money_next = change_due + paid_amount + bill_value(sw[1:0]);
                         if (money_next >= total_due) begin
                             paid_amount <= 8'd0;
                             change_due <= money_next - total_due;
@@ -292,7 +351,7 @@ module vending_machine_core #(
                             vend_pulse <= 1'b1;
                             state <= ST_VEND;
                         end else begin
-                            paid_amount <= money_next;
+                            paid_amount <= paid_amount + bill_value(sw[1:0]);
                         end
                     end
                 end
@@ -314,6 +373,12 @@ module vending_machine_core #(
                     if (change_due == 8'd0) begin
                         clear_transaction();
                         state <= ST_IDLE;
+                    end else if (key_product_pulse) begin
+                        // Keep the remaining change as a reusable balance for
+                        // the next order instead of returning it immediately.
+                        clear_order_keep_balance();
+                        current_product_code <= sw;
+                        state <= ST_SELECT_PRODUCT;
                     end else if (key_change_pulse) begin
                         change_due <= change_due - 8'd1;
                         return_coin_pulse <= 1'b1;

@@ -33,6 +33,8 @@ set_property PACKAGE_PIN T18 [get_ports {seg[6]}]
 set_property PACKAGE_PIN N17 [get_ports {seg[7]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {seg[*]}]
 
+# The board names digit selects from the opposite display end.  Keep this
+# reversed mapping so sel[0] remains the leftmost displayed digit.
 set_property PACKAGE_PIN Y19 [get_ports {sel[0]}]
 set_property PACKAGE_PIN V18 [get_ports {sel[1]}]
 set_property PACKAGE_PIN V19 [get_ports {sel[2]}]

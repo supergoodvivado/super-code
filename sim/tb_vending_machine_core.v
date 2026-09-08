@@ -19,6 +19,7 @@ module tb_vending_machine_core;
     wire [7:0] change_due;
     wire vend_pulse;
     wire return_coin_pulse;
+    wire selection_full_pulse;
 
     localparam ST_IDLE           = 3'd0;
     localparam ST_SELECT_PRODUCT = 3'd1;
@@ -47,7 +48,8 @@ module tb_vending_machine_core;
         .paid_amount(paid_amount),
         .change_due(change_due),
         .vend_pulse(vend_pulse),
-        .return_coin_pulse(return_coin_pulse)
+        .return_coin_pulse(return_coin_pulse),
+        .selection_full_pulse(selection_full_pulse)
     );
 
     always #5 clk = ~clk;
@@ -164,6 +166,19 @@ module tb_vending_machine_core;
         expect_state(ST_ORDER_READY);
         expect_amount(8'd26, 8'd0, 8'd0);
 
+        // A full order rejects KEY1 without changing the displayed product/order.
+        sw = 4'hA;
+        pulse_product();
+        expect_state(ST_ORDER_READY);
+        expect_amount(8'd26, 8'd0, 8'd0);
+        if (selected_count !== 2 || current_product_code !== 4'hD ||
+            current_quantity !== 2 || selection_full_pulse !== 1'b1) begin
+            $fatal(1, "Full order changed or rejection pulse missing");
+        end
+        @(negedge clk);
+        if (selection_full_pulse !== 1'b0)
+            $fatal(1, "Rejection pulse lasted more than one cycle");
+
         pulse_confirm();
         expect_state(ST_PAY);
 
@@ -212,64 +227,190 @@ module tb_vending_machine_core;
         expect_state(ST_IDLE);
         expect_amount(8'd0, 8'd0, 8'd0);
 
-        // Exercise both selection pages, with and without a committed order.
-        for (phase = 0; phase < 2; phase = phase + 1) begin
-            for (populated = 0; populated < 2; populated = populated + 1) begin
-                sw = 4'h4;
-                pulse_product();
-                if (populated != 0) begin
-                    pulse_product();
-                    sw = 4'd0;
-                    pulse_product();
-                    pulse_product();
-                end
-                if (phase != 0) pulse_product();
-                pulse_change();
-                expect_state(populated != 0 ? ST_ORDER_READY : ST_IDLE);
-                expect_amount(populated != 0 ? 8'd10 : 8'd0, 8'd0, 8'd0);
-                if (populated != 0) pulse_cancel();
-                expect_state(ST_IDLE);
-
-                sw = 4'h4;
-                pulse_product();
-                if (populated != 0) begin
-                    pulse_product();
-                    sw = 4'd0;
-                    pulse_product();
-                    pulse_product();
-                end
-                if (phase != 0) pulse_product();
-                pulse_cancel();
-                expect_state(ST_SELECT_PRODUCT);
-                expect_amount(8'd0, 8'd0, 8'd0);
-                if (selected_count !== 0 || dut.has_item1 !== 0 ||
-                    dut.has_item2 !== 0 || dut.pending_code !== 0) begin
-                    $display("ERROR: KEY4 did not clear the order");
-                    $finish;
-                end
-                pulse_cancel();
-                expect_state(ST_IDLE);
-            end
-        end
-
-        // Selecting again after clearing starts a fresh two-press cancel sequence.
-        pulse_product();
-        pulse_cancel();
+        // Retain 4 yuan change as a balance, then use it for a new order.
+        // A13 x1 costs 6 yuan; 10 yuan leaves a 4 yuan balance.
         sw = 4'h2;
         pulse_product();
-        expect_state(ST_SELECT_QTY);
-        pulse_cancel();
-        expect_state(ST_SELECT_PRODUCT);
         pulse_product();
-        sw = 4'd0;
+        sw = 4'b0000;
+        pulse_product();
+        pulse_confirm();
+        sw = 4'b0001;
+        pulse_confirm();
+        expect_state(ST_VEND);
+        expect_amount(8'd6, 8'd0, 8'd4);
+        wait_cycles(5);
+        expect_state(ST_CHANGE);
+
+        // KEY1 starts another selection but preserves the 4 yuan balance.
+        // A11 x1 costs 3, so confirmation deducts the balance and vends
+        // immediately, leaving 1 yuan for the following order.
+        sw = 4'h0;
+        pulse_product();
+        expect_state(ST_SELECT_PRODUCT);
+        expect_amount(8'd0, 8'd0, 8'd4);
+        pulse_product();
+        sw = 4'b0000;
+        pulse_product();
+        expect_state(ST_ORDER_READY);
+        expect_amount(8'd3, 8'd0, 8'd4);
+        pulse_confirm();
+        expect_state(ST_VEND);
+        expect_amount(8'd3, 8'd0, 8'd1);
+        wait_cycles(5);
+        expect_state(ST_CHANGE);
+
+        // A12 x1 costs 4.  The retained 1 yuan is insufficient, so three
+        // more 1-yuan coins complete the payment.
+        sw = 4'h1;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0000;
+        pulse_product();
+        expect_state(ST_ORDER_READY);
+        expect_amount(8'd4, 8'd0, 8'd1);
+        pulse_confirm();
+        expect_state(ST_PAY);
+        expect_amount(8'd4, 8'd0, 8'd1);
+        pulse_product();
+        expect_amount(8'd4, 8'd1, 8'd1);
+        pulse_product();
+        expect_amount(8'd4, 8'd2, 8'd1);
+        pulse_product();
+        expect_state(ST_VEND);
+        expect_amount(8'd4, 8'd0, 8'd0);
+        wait_cycles(5);
+        expect_state(ST_IDLE);
+
+        // KEY3 returns from first-product selection to idle.
+        sw = 4'h4;
+        pulse_product();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_change();
+        expect_state(ST_IDLE);
+
+        // Commit A13 x1 as the first item.
+        sw = 4'h2;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0000;
         pulse_product();
         expect_state(ST_ORDER_READY);
         expect_amount(8'd6, 8'd0, 8'd0);
-        if (selected_count !== 1) begin
-            $display("ERROR: stale order after clearing");
-            $finish;
-        end
+
+        // KEY3 at confirmation reopens item 1 quantity; KEY3 there returns
+        // to product selection, and KEY3 while selecting item 1 returns to
+        // its original confirmation page.
+        pulse_change();
+        expect_state(ST_SELECT_QTY);
+        if (current_product_code !== 4'h2 || current_quantity !== 1)
+            $fatal(1, "KEY3 did not restore item 1 quantity");
+        pulse_change();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_change();
+        expect_state(ST_ORDER_READY);
+        if (current_product_code !== 4'h2 || current_quantity !== 1)
+            $fatal(1, "KEY3 did not restore item 1 confirmation");
+
+        // Start choosing item 2, then KEY3 returns to item 1 confirmation.
+        sw = 4'hD;
+        pulse_product();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_change();
+        expect_state(ST_ORDER_READY);
+        if (current_product_code !== 4'h2 || current_quantity !== 1)
+            $fatal(1, "KEY3 did not return from item 2 selection");
+
+        // Commit A42 x2, then reopen and replace its quantity with 3.
+        sw = 4'hD;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0001;
+        pulse_product();
+        expect_amount(8'd14, 8'd0, 8'd0);
+        pulse_change();
+        expect_state(ST_SELECT_QTY);
+        if (current_product_code !== 4'hD || current_quantity !== 2)
+            $fatal(1, "KEY3 did not restore item 2 quantity");
+        sw = 4'b0010;
+        pulse_product();
+        expect_state(ST_ORDER_READY);
+        expect_amount(8'd18, 8'd0, 8'd0);
         pulse_cancel();
+        expect_state(ST_IDLE);
+
+        // KEY4 in all selection states returns idle when no balance exists.
+        sw = 4'h4;
+        pulse_product();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_cancel();
+        expect_state(ST_IDLE);
+        sw = 4'h4;
+        pulse_product();
+        pulse_product();
+        expect_state(ST_SELECT_QTY);
+        pulse_cancel();
+        expect_state(ST_IDLE);
+        sw = 4'h4;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0000;
+        pulse_product();
+        expect_state(ST_ORDER_READY);
+        pulse_cancel();
+        expect_state(ST_IDLE);
+
+        // Create a 4 yuan balance, then verify KEY4 in every selection state
+        // discards the order and enters the refund state with that balance.
+        sw = 4'h2;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0000;
+        pulse_product();
+        pulse_confirm();
+        sw = 4'b0001;
+        pulse_confirm();
+        expect_state(ST_VEND);
+        expect_amount(8'd6, 8'd0, 8'd4);
+        wait_cycles(5);
+        expect_state(ST_CHANGE);
+
+        // In first-product selection, KEY3 matches KEY4 when a balance exists.
+        sw = 4'h4;
+        pulse_product();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_change();
+        expect_state(ST_CHANGE);
+        expect_amount(8'd0, 8'd0, 8'd4);
+
+        sw = 4'h4;
+        pulse_product();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_cancel();
+        expect_state(ST_CHANGE);
+        expect_amount(8'd0, 8'd0, 8'd4);
+
+        sw = 4'h4;
+        pulse_product();
+        pulse_product();
+        expect_state(ST_SELECT_QTY);
+        pulse_cancel();
+        expect_state(ST_CHANGE);
+        expect_amount(8'd0, 8'd0, 8'd4);
+
+        sw = 4'h4;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0000;
+        pulse_product();
+        expect_state(ST_ORDER_READY);
+        pulse_cancel();
+        expect_state(ST_CHANGE);
+        expect_amount(8'd0, 8'd0, 8'd4);
+        pulse_change();
+        pulse_change();
+        pulse_change();
+        pulse_change();
         expect_state(ST_IDLE);
 
         $display("PASS: vending machine core simulation completed.");

@@ -25,7 +25,9 @@ module seven_segment_scan #(
     wire [7:0] aux_amount;
 
     assign scan_index = refresh_count[REFRESH_BITS-1:REFRESH_BITS-3];
-    assign aux_amount = (state == 3'd6) ? change_due : paid_amount;
+    // change_due is also the reusable balance when a new order starts from
+    // the change state.  During payment, include newly inserted money.
+    assign aux_amount = (state == 3'd4) ? (change_due + paid_amount) : change_due;
 
     function [3:0] tens_digit;
         input [7:0] value;
@@ -41,10 +43,10 @@ module seven_segment_scan #(
                 3'd0: visible_state = 4'd0; // Idle.
                 3'd1: visible_state = 4'd1; // Select product.
                 3'd2: visible_state = 4'd2; // Select quantity.
-                3'd3: visible_state = 4'd0; // Order ready, same display style as before.
-                3'd4: visible_state = 4'd2; // Pay.
-                3'd5: visible_state = 4'd3; // Vend.
-                3'd6: visible_state = 4'd4; // Change/refund.
+                3'd3: visible_state = 4'd3; // Order ready.
+                3'd4: visible_state = 4'd4; // Pay.
+                3'd5: visible_state = 4'd5; // Vend.
+                3'd6: visible_state = 4'd6; // Change/refund.
                 default: visible_state = 4'd0;
             endcase
         end
@@ -112,11 +114,11 @@ module seven_segment_scan #(
             end
             3'd6: begin
                 sel_active_high = 8'b0100_0000;
-                digit = (state >= 3'd3) ? tens_digit(aux_amount) : 4'd0;
+                digit = (state != 3'd0) ? tens_digit(aux_amount) : 4'd0;
             end
             default: begin
                 sel_active_high = 8'b1000_0000;
-                digit = (state >= 3'd3) ? ones_digit(aux_amount) : 4'd0;
+                digit = (state != 3'd0) ? ones_digit(aux_amount) : 4'd0;
             end
         endcase
 
