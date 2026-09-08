@@ -375,6 +375,14 @@ module tb_vending_machine_core;
         wait_cycles(5);
         expect_state(ST_CHANGE);
 
+        // In first-product selection, KEY3 matches KEY4 when a balance exists.
+        sw = 4'h4;
+        pulse_product();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_change();
+        expect_state(ST_CHANGE);
+        expect_amount(8'd0, 8'd0, 8'd4);
+
         sw = 4'h4;
         pulse_product();
         expect_state(ST_SELECT_PRODUCT);

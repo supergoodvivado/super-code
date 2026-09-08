@@ -99,7 +99,7 @@
     <rect x="55" y="620" width="600" height="310" rx="18" fill="#fff8ef" stroke="#e9a15b" stroke-width="3"/>
     <text x="85" y="662" class="card-title">ST_SELECT_PRODUCT</text>
     <text x="85" y="704" class="card-line">• KEY3，selected_count = 1 → ST_ORDER_READY（恢复第 1 件）</text>
-    <text x="85" y="744" class="card-line">• KEY3，selected_count = 0 → ST_IDLE</text>
+    <text x="85" y="744" class="card-line">• KEY3，selected_count = 0：同 KEY4 退款／待机</text>
     <text x="85" y="784" class="card-line">• KEY4：有余额 → ST_CHANGE（退款）</text>
     <text x="85" y="824" class="card-line">• KEY4：无余额 → ST_IDLE</text>
     <text x="85" y="864" class="card-line">• 事件优先级：KEY4 → KEY3 → KEY1 → KEY2</text>
