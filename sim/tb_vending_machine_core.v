@@ -339,6 +339,72 @@ module tb_vending_machine_core;
         pulse_cancel();
         expect_state(ST_IDLE);
 
+        // KEY4 in all selection states returns idle when no balance exists.
+        sw = 4'h4;
+        pulse_product();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_cancel();
+        expect_state(ST_IDLE);
+        sw = 4'h4;
+        pulse_product();
+        pulse_product();
+        expect_state(ST_SELECT_QTY);
+        pulse_cancel();
+        expect_state(ST_IDLE);
+        sw = 4'h4;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0000;
+        pulse_product();
+        expect_state(ST_ORDER_READY);
+        pulse_cancel();
+        expect_state(ST_IDLE);
+
+        // Create a 4 yuan balance, then verify KEY4 in every selection state
+        // discards the order and enters the refund state with that balance.
+        sw = 4'h2;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0000;
+        pulse_product();
+        pulse_confirm();
+        sw = 4'b0001;
+        pulse_confirm();
+        expect_state(ST_VEND);
+        expect_amount(8'd6, 8'd0, 8'd4);
+        wait_cycles(5);
+        expect_state(ST_CHANGE);
+
+        sw = 4'h4;
+        pulse_product();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_cancel();
+        expect_state(ST_CHANGE);
+        expect_amount(8'd0, 8'd0, 8'd4);
+
+        sw = 4'h4;
+        pulse_product();
+        pulse_product();
+        expect_state(ST_SELECT_QTY);
+        pulse_cancel();
+        expect_state(ST_CHANGE);
+        expect_amount(8'd0, 8'd0, 8'd4);
+
+        sw = 4'h4;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0000;
+        pulse_product();
+        expect_state(ST_ORDER_READY);
+        pulse_cancel();
+        expect_state(ST_CHANGE);
+        expect_amount(8'd0, 8'd0, 8'd4);
+        pulse_change();
+        pulse_change();
+        pulse_change();
+        pulse_change();
+        expect_state(ST_IDLE);
+
         $display("PASS: vending machine core simulation completed.");
         $finish;
     end
