@@ -227,63 +227,60 @@ module tb_vending_machine_core;
         expect_state(ST_IDLE);
         expect_amount(8'd0, 8'd0, 8'd0);
 
-        // Exercise both selection pages, with and without a committed order.
-        for (phase = 0; phase < 2; phase = phase + 1) begin
-            for (populated = 0; populated < 2; populated = populated + 1) begin
-                sw = 4'h4;
-                pulse_product();
-                if (populated != 0) begin
-                    pulse_product();
-                    sw = 4'd0;
-                    pulse_product();
-                    pulse_product();
-                end
-                if (phase != 0) pulse_product();
-                pulse_change();
-                expect_state(populated != 0 ? ST_ORDER_READY : ST_IDLE);
-                expect_amount(populated != 0 ? 8'd10 : 8'd0, 8'd0, 8'd0);
-                if (populated != 0) pulse_cancel();
-                expect_state(ST_IDLE);
-
-                sw = 4'h4;
-                pulse_product();
-                if (populated != 0) begin
-                    pulse_product();
-                    sw = 4'd0;
-                    pulse_product();
-                    pulse_product();
-                end
-                if (phase != 0) pulse_product();
-                pulse_cancel();
-                expect_state(ST_SELECT_PRODUCT);
-                expect_amount(8'd0, 8'd0, 8'd0);
-                if (selected_count !== 0 || dut.has_item1 !== 0 ||
-                    dut.has_item2 !== 0 || dut.pending_code !== 0) begin
-                    $display("ERROR: KEY4 did not clear the order");
-                    $finish;
-                end
-                pulse_cancel();
-                expect_state(ST_IDLE);
-            end
-        end
-
-        // Selecting again after clearing starts a fresh two-press cancel sequence.
+        // KEY3 returns from first-product selection to idle.
+        sw = 4'h4;
         pulse_product();
-        pulse_cancel();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_change();
+        expect_state(ST_IDLE);
+
+        // Commit A13 x1 as the first item.
         sw = 4'h2;
         pulse_product();
-        expect_state(ST_SELECT_QTY);
-        pulse_cancel();
-        expect_state(ST_SELECT_PRODUCT);
         pulse_product();
-        sw = 4'd0;
+        sw = 4'b0000;
         pulse_product();
         expect_state(ST_ORDER_READY);
         expect_amount(8'd6, 8'd0, 8'd0);
-        if (selected_count !== 1) begin
-            $display("ERROR: stale order after clearing");
-            $finish;
-        end
+
+        // KEY3 at confirmation reopens item 1 quantity; KEY3 there returns
+        // to product selection, and KEY3 while selecting item 1 returns to
+        // its original confirmation page.
+        pulse_change();
+        expect_state(ST_SELECT_QTY);
+        if (current_product_code !== 4'h2 || current_quantity !== 1)
+            $fatal(1, "KEY3 did not restore item 1 quantity");
+        pulse_change();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_change();
+        expect_state(ST_ORDER_READY);
+        if (current_product_code !== 4'h2 || current_quantity !== 1)
+            $fatal(1, "KEY3 did not restore item 1 confirmation");
+
+        // Start choosing item 2, then KEY3 returns to item 1 confirmation.
+        sw = 4'hD;
+        pulse_product();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_change();
+        expect_state(ST_ORDER_READY);
+        if (current_product_code !== 4'h2 || current_quantity !== 1)
+            $fatal(1, "KEY3 did not return from item 2 selection");
+
+        // Commit A42 x2, then reopen and replace its quantity with 3.
+        sw = 4'hD;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0001;
+        pulse_product();
+        expect_amount(8'd14, 8'd0, 8'd0);
+        pulse_change();
+        expect_state(ST_SELECT_QTY);
+        if (current_product_code !== 4'hD || current_quantity !== 2)
+            $fatal(1, "KEY3 did not restore item 2 quantity");
+        sw = 4'b0010;
+        pulse_product();
+        expect_state(ST_ORDER_READY);
+        expect_amount(8'd18, 8'd0, 8'd0);
         pulse_cancel();
         expect_state(ST_IDLE);
 

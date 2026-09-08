@@ -98,8 +98,8 @@
   <g>
     <rect x="55" y="620" width="600" height="310" rx="18" fill="#fff8ef" stroke="#e9a15b" stroke-width="3"/>
     <text x="85" y="662" class="card-title">ST_SELECT_PRODUCT</text>
-    <text x="85" y="704" class="card-line">• KEY3，total_due &gt; 0 → ST_ORDER_READY（返回）</text>
-    <text x="85" y="744" class="card-line">• KEY3，total_due = 0 → ST_IDLE（返回）</text>
+    <text x="85" y="704" class="card-line">• KEY3，selected_count = 1 → ST_ORDER_READY（恢复第 1 件）</text>
+    <text x="85" y="744" class="card-line">• KEY3，selected_count = 0 → ST_IDLE</text>
     <text x="85" y="784" class="card-line">• 首次 KEY4 → 清空订单，留在本状态</text>
     <text x="85" y="824" class="card-line">• 再次 KEY4 → ST_IDLE</text>
     <text x="85" y="864" class="card-line">• 事件优先级：KEY4 → KEY3 → KEY1 → KEY2</text>
@@ -107,8 +107,8 @@
 
     <rect x="700" y="620" width="600" height="310" rx="18" fill="#fff8ef" stroke="#e9a15b" stroke-width="3"/>
     <text x="730" y="662" class="card-title">ST_SELECT_QTY</text>
-    <text x="730" y="704" class="card-line">• KEY3，total_due &gt; 0 → ST_ORDER_READY（保留订单）</text>
-    <text x="730" y="744" class="card-line">• KEY3，total_due = 0 → ST_IDLE</text>
+    <text x="730" y="704" class="card-line">• KEY3 → ST_SELECT_PRODUCT（重新选择商品）</text>
+    <text x="730" y="744" class="card-line">• 当前商品尚未提交，订单保持不变</text>
     <text x="730" y="784" class="card-line">• KEY4 → 清空订单，回 ST_SELECT_PRODUCT</text>
     <text x="730" y="824" class="card-line">• KEY1 → 提交当前商品和数量</text>
     <text x="730" y="864" class="card-line">• 事件优先级：KEY4 → KEY3 → KEY1</text>
@@ -118,8 +118,9 @@
     <text x="1375" y="662" class="card-title">ST_ORDER_READY</text>
     <text x="1375" y="704" class="card-line">• KEY1 → ST_SELECT_PRODUCT（继续选购）</text>
     <text x="1375" y="744" class="card-line">• KEY2 且 total_due &gt; 0 → ST_PAY</text>
-    <text x="1375" y="784" class="card-line">• KEY4 → 清空整个订单并进入 ST_IDLE</text>
-    <text x="1375" y="824" class="card-line">• 事件优先级：KEY4 → KEY1 → KEY2</text>
+    <text x="1375" y="784" class="card-line">• KEY3 → ST_SELECT_QTY（恢复最后一件商品数量）</text>
+    <text x="1375" y="824" class="card-line">• KEY4 → 清空整个订单并进入 ST_IDLE</text>
+    <text x="1375" y="864" class="card-line">• 事件优先级：KEY4 → KEY3 → KEY1 → KEY2</text>
     <text x="1375" y="864" class="card-line">• paid_amount、change_due 保持为 0</text>
   </g>
 

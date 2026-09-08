@@ -216,11 +216,16 @@ module vending_machine_core #(
                     if (key_cancel_pulse) begin
                         cancel_selection();
                     end else if (key_change_pulse) begin
-                        selection_cleared <= 1'b0;
-                        if (total_due == 8'd0) begin
+                        // KEY3 returns from product selection.  With no
+                        // committed item it returns to idle; while choosing
+                        // item 2 it restores the confirmation of item 1.
+                        if (selected_count == 2'd0) begin
                             clear_transaction();
                             state <= ST_IDLE;
                         end else begin
+                            pending_code <= item1_code;
+                            current_product_code <= item1_code;
+                            current_quantity <= item1_qty;
                             state <= ST_ORDER_READY;
                         end
                     end else if (key_product_pulse) begin
@@ -240,8 +245,11 @@ module vending_machine_core #(
                     if (key_cancel_pulse) begin
                         cancel_selection();
                     end else if (key_change_pulse) begin
-                        selection_cleared <= 1'b0;
-                        state <= (total_due == 8'd0) ? ST_IDLE : ST_ORDER_READY;
+                        // KEY3 returns to product selection before an item is
+                        // committed, so the product can be chosen again.
+                        current_product_code <= sw;
+                        current_quantity <= 2'd0;
+                        state <= ST_SELECT_PRODUCT;
                     end else if (key_product_pulse) begin
                         commit_selection();
                         state <= ST_ORDER_READY;
@@ -255,6 +263,19 @@ module vending_machine_core #(
                     if (key_cancel_pulse) begin
                         clear_transaction();
                         state <= ST_IDLE;
+                    end else if (key_change_pulse) begin
+                        // KEY3 reopens the quantity page for the last item.
+                        // Existing commit logic then replaces that quantity.
+                        if (has_item2) begin
+                            pending_code <= item2_code;
+                            current_product_code <= item2_code;
+                            current_quantity <= item2_qty;
+                        end else begin
+                            pending_code <= item1_code;
+                            current_product_code <= item1_code;
+                            current_quantity <= item1_qty;
+                        end
+                        state <= ST_SELECT_QTY;
                     end else if (key_product_pulse) begin
                         if (selected_count == 2'd2) begin
                             selection_full_pulse <= 1'b1;
