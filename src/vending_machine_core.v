@@ -30,6 +30,7 @@ module vending_machine_core #(
     localparam ST_VEND           = 3'd5;
     localparam ST_CHANGE         = 3'd6;
 
+    reg selection_cleared;
     reg has_item1;
     reg has_item2;
     reg [3:0] item1_code;
@@ -109,6 +110,7 @@ module vending_machine_core #(
 
     task clear_transaction;
         begin
+            selection_cleared <= 1'b0;
             has_item1 <= 1'b0;
             has_item2 <= 1'b0;
             item1_code <= 4'd0;
@@ -122,6 +124,19 @@ module vending_machine_core #(
             pending_code <= 4'd0;
             current_product_code <= 4'd0;
             current_quantity <= 2'd0;
+        end
+    endtask
+
+    // First KEY4 clears the order; another KEY4 leaves the selection page.
+    task cancel_selection;
+        begin
+            clear_transaction();
+            if (selection_cleared) begin
+                state <= ST_IDLE;
+            end else begin
+                selection_cleared <= 1'b1;
+                state <= ST_SELECT_PRODUCT;
+            end
         end
     endtask
 
@@ -159,6 +174,7 @@ module vending_machine_core #(
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             state <= ST_IDLE;
+            selection_cleared <= 1'b0;
             has_item1 <= 1'b0;
             has_item2 <= 1'b0;
             item1_code <= 4'd0;
@@ -195,6 +211,9 @@ module vending_machine_core #(
                     change_due <= 8'd0;
 
                     if (key_cancel_pulse) begin
+                        cancel_selection();
+                    end else if (key_change_pulse) begin
+                        selection_cleared <= 1'b0;
                         if (total_due == 8'd0) begin
                             clear_transaction();
                             state <= ST_IDLE;
@@ -202,6 +221,7 @@ module vending_machine_core #(
                             state <= ST_ORDER_READY;
                         end
                     end else if (key_product_pulse) begin
+                        selection_cleared <= 1'b0;
                         pending_code <= sw;
                         current_product_code <= sw;
                         state <= ST_SELECT_QTY;
@@ -215,6 +235,9 @@ module vending_machine_core #(
                     current_quantity <= qty_from_switch(sw[1:0]);
 
                     if (key_cancel_pulse) begin
+                        cancel_selection();
+                    end else if (key_change_pulse) begin
+                        selection_cleared <= 1'b0;
                         state <= (total_due == 8'd0) ? ST_IDLE : ST_ORDER_READY;
                     end else if (key_product_pulse) begin
                         commit_selection();
