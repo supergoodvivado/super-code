@@ -41,10 +41,10 @@ module seven_segment_scan #(
                 3'd0: visible_state = 4'd0; // Idle.
                 3'd1: visible_state = 4'd1; // Select product.
                 3'd2: visible_state = 4'd2; // Select quantity.
-                3'd3: visible_state = 4'd0; // Order ready, same display style as before.
-                3'd4: visible_state = 4'd2; // Pay.
-                3'd5: visible_state = 4'd3; // Vend.
-                3'd6: visible_state = 4'd4; // Change/refund.
+                3'd3: visible_state = 4'd3; // Order ready.
+                3'd4: visible_state = 4'd4; // Pay.
+                3'd5: visible_state = 4'd5; // Vend.
+                3'd6: visible_state = 4'd6; // Change/refund.
                 default: visible_state = 4'd0;
             endcase
         end

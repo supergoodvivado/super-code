@@ -15,6 +15,7 @@ add_files -fileset sources_1 [list \
 add_files -fileset sim_1 [list \
     [file join $root_dir sim tb_vending_machine_core.v] \
     [file join $root_dir sim tb_selection_full.v] \
+    [file join $root_dir sim tb_state_display.v] \
 ]
 
 add_files -fileset constrs_1 [list \
