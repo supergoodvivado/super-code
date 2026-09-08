@@ -19,7 +19,8 @@ module vending_machine_core #(
     output reg [7:0] paid_amount,
     output reg [7:0] change_due,
     output reg vend_pulse,
-    output reg return_coin_pulse
+    output reg return_coin_pulse,
+    output reg selection_full_pulse
 );
 
     localparam ST_IDLE           = 3'd0;
@@ -191,9 +192,11 @@ module vending_machine_core #(
             vend_counter <= 32'd0;
             vend_pulse <= 1'b0;
             return_coin_pulse <= 1'b0;
+            selection_full_pulse <= 1'b0;
         end else begin
             vend_pulse <= 1'b0;
             return_coin_pulse <= 1'b0;
+            selection_full_pulse <= 1'b0;
 
             case (state)
                 ST_IDLE: begin
@@ -253,9 +256,13 @@ module vending_machine_core #(
                         clear_transaction();
                         state <= ST_IDLE;
                     end else if (key_product_pulse) begin
-                        current_product_code <= sw;
-                        current_quantity <= 2'd0;
-                        state <= ST_SELECT_PRODUCT;
+                        if (selected_count == 2'd2) begin
+                            selection_full_pulse <= 1'b1;
+                        end else begin
+                            current_product_code <= sw;
+                            current_quantity <= 2'd0;
+                            state <= ST_SELECT_PRODUCT;
+                        end
                     end else if (key_confirm_pulse && (total_due != 8'd0)) begin
                         state <= ST_PAY;
                     end

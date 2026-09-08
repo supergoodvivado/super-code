@@ -1,6 +1,8 @@
 `timescale 1ns / 1ps
 
-module vending_machine_top (
+module vending_machine_top #(
+    parameter FULL_BLINK_TICKS = 10_000_000 // 200 ms per phase at 50 MHz.
+) (
     input wire clk,
     input wire [3:0] sw,
     input wire [3:0] key_n,
@@ -32,11 +34,15 @@ module vending_machine_top (
     wire [7:0] change_due;
     wire vend_pulse;
     wire return_coin_pulse;
+    wire selection_full_pulse;
+    reg [31:0] full_blink_counter;
+    reg [2:0] full_blink_phases;
     reg [15:0] buzzer_divider = 16'd0;
     reg [22:0] key_beep_counter = 23'd0;
     wire any_key_pulse;
     wire buzz_enable;
     localparam ST_PAY    = 3'd4;
+    localparam ST_ORDER_READY = 3'd3;
     localparam ST_VEND   = 3'd5;
     localparam ST_CHANGE = 3'd6;
 
@@ -109,7 +115,8 @@ module vending_machine_top (
         .paid_amount(paid_amount),
         .change_due(change_due),
         .vend_pulse(vend_pulse),
-        .return_coin_pulse(return_coin_pulse)
+        .return_coin_pulse(return_coin_pulse),
+        .selection_full_pulse(selection_full_pulse)
     );
 
     seven_segment_scan display (
@@ -125,7 +132,30 @@ module vending_machine_top (
         .sel(sel)
     );
 
-    assign led[0] = (selected_count != 2'd0);
+    // LED1 is normally on for an order: off/on/off/on gives two flashes.
+    // Ignore retriggers during a flash sequence; leaving order ready clears it.
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            full_blink_counter <= 32'd0;
+            full_blink_phases <= 3'd0;
+        end else if (state != ST_ORDER_READY) begin
+            full_blink_counter <= 32'd0;
+            full_blink_phases <= 3'd0;
+        end else if (full_blink_phases != 3'd0) begin
+            if (full_blink_counter == 32'd0) begin
+                full_blink_phases <= full_blink_phases - 3'd1;
+                full_blink_counter <= (FULL_BLINK_TICKS > 0) ? FULL_BLINK_TICKS - 1 : 0;
+            end else begin
+                full_blink_counter <= full_blink_counter - 32'd1;
+            end
+        end else if (selection_full_pulse) begin
+            full_blink_phases <= 3'd4;
+            full_blink_counter <= (FULL_BLINK_TICKS > 0) ? FULL_BLINK_TICKS - 1 : 0;
+        end
+    end
+
+    assign led[0] = (selected_count != 2'd0) &&
+                    ((full_blink_phases == 3'd0) || full_blink_phases[0]);
     assign led[1] = (state == ST_PAY);
     assign led[2] = (state == ST_VEND) | vend_pulse;
     assign led[3] = (state == ST_CHANGE) | return_coin_pulse;

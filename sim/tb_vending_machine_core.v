@@ -19,6 +19,7 @@ module tb_vending_machine_core;
     wire [7:0] change_due;
     wire vend_pulse;
     wire return_coin_pulse;
+    wire selection_full_pulse;
 
     localparam ST_IDLE           = 3'd0;
     localparam ST_SELECT_PRODUCT = 3'd1;
@@ -47,7 +48,8 @@ module tb_vending_machine_core;
         .paid_amount(paid_amount),
         .change_due(change_due),
         .vend_pulse(vend_pulse),
-        .return_coin_pulse(return_coin_pulse)
+        .return_coin_pulse(return_coin_pulse),
+        .selection_full_pulse(selection_full_pulse)
     );
 
     always #5 clk = ~clk;
@@ -163,6 +165,19 @@ module tb_vending_machine_core;
         pulse_product();
         expect_state(ST_ORDER_READY);
         expect_amount(8'd26, 8'd0, 8'd0);
+
+        // A full order rejects KEY1 without changing the displayed product/order.
+        sw = 4'hA;
+        pulse_product();
+        expect_state(ST_ORDER_READY);
+        expect_amount(8'd26, 8'd0, 8'd0);
+        if (selected_count !== 2 || current_product_code !== 4'hD ||
+            current_quantity !== 2 || selection_full_pulse !== 1'b1) begin
+            $fatal(1, "Full order changed or rejection pulse missing");
+        end
+        @(negedge clk);
+        if (selection_full_pulse !== 1'b0)
+            $fatal(1, "Rejection pulse lasted more than one cycle");
 
         pulse_confirm();
         expect_state(ST_PAY);
