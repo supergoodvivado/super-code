@@ -13,7 +13,10 @@ module tb_selection_full;
     integer i, scan;
     reg [7:0] saved_seg [0:7];
 
-    vending_machine_top #(.FULL_BLINK_TICKS(4)) dut (
+    vending_machine_top #(
+        .FULL_BLINK_TICKS(4),
+        .PAYMENT_ERROR_BLINK_TICKS(4)
+    ) dut (
         .clk(clk), .sw(sw), .key_n(4'hF), .led(led),
         .seg(seg), .sel(sel), .buzzer(buzzer)
     );
@@ -23,6 +26,13 @@ module tb_selection_full;
         begin
             @(negedge clk); product = 1;
             @(negedge clk); product = 0;
+        end
+    endtask
+
+    task press_confirm;
+        begin
+            @(negedge clk); confirm = 1;
+            @(negedge clk); confirm = 0;
         end
     endtask
 
@@ -63,33 +73,49 @@ module tb_selection_full;
             #0.01; saved_seg[scan] = seg;
         end
         release dut.display.scan_index;
-        if (led !== 4'b0001) $fatal(1, "Expected order LED on");
+        if (led !== 4'b0001) $fatal(1, "Expected green order LED on");
         sw = 4'hA;
         press_product();
         @(negedge clk); // Registered rejection reaches LED controller.
         for (i = 0; i < 16; i = i + 1) begin
-            if (led !== ((i / 4) % 2 ? 4'b0001 : 4'b0000))
-                $fatal(1, "Incorrect blink phase at cycle %0d", i);
+            if (led !== ((i / 4) % 2 ? 4'b0000 : 4'b0001))
+                $fatal(1, "Selection limit did not flash green at cycle %0d", i);
+            if (dut.error_beep_enable !== led[0])
+                $fatal(1, "Buzzer enable is not synchronized with green LED");
             check_order();
             @(negedge clk);
         end
         if (led !== 1 || dut.full_blink_phases !== 0)
-            $fatal(1, "LED did not return to steady on after two flashes");
+            $fatal(1, "Green order LED did not return after alert");
         // A later press can trigger another sequence; payment still works.
         press_product();
         @(negedge clk);
-        if (led !== 0) $fatal(1, "Repeat rejection did not flash");
-        confirm = 1;
-        @(negedge clk); confirm = 0;
+        if (led !== 1) $fatal(1, "Repeat rejection did not flash green");
+        press_confirm();
         @(negedge clk);
         if (dut.state !== 4 || led !== 3 || dut.full_blink_phases !== 0)
             $fatal(1, "Payment did not clear blink feedback");
-        cancel = 1;
-        @(negedge clk); cancel = 0;
+
+        // Reach the 255-yuan ceiling, then verify that the rejected extra
+        // coin produces the identical green/two-beep alert.
+        sw = 4'b0011;
+        for (i = 0; i < 5; i = i + 1) press_confirm();
+        for (i = 0; i < 5; i = i + 1) press_product();
+        if (dut.paid_amount !== 8'd255)
+            $fatal(1, "Could not reach the 255-yuan payment limit");
+        press_product();
         @(negedge clk);
-        if (dut.state !== 0 || led !== 0)
-            $fatal(1, "Cancel did not clear the order");
-        $display("PASS: full selection preserves display and flashes LED1 twice.");
+        for (i = 0; i < 20; i = i + 1) begin
+            if (dut.payment_error_blink_phases != 0 &&
+                led !== (dut.payment_error_blink_phases[0] ? 4'b0010 : 4'b0011))
+                $fatal(1, "Payment limit green flash has an incorrect phase");
+            if (dut.error_beep_enable !== led[0])
+                $fatal(1, "Payment-limit beep is not synchronized with green LED");
+            @(negedge clk);
+        end
+        if (dut.payment_error_blink_phases !== 0)
+            $fatal(1, "Payment limit alert did not finish after two flashes");
+        $display("PASS: selection limit preserves display and flashes green twice with synchronized beeps.");
         $finish;
     end
 endmodule

@@ -15,12 +15,17 @@ module vending_machine_core #(
     output reg [3:0] current_product_code,
     output reg [1:0] current_quantity,
     output wire [7:0] current_price,
+    // Eight bits retain amounts up to 255 yuan; the display intentionally
+    // renders only the low two decimal digits.
     output reg [7:0] total_due,
     output reg [7:0] paid_amount,
     output reg [7:0] change_due,
     output reg vend_pulse,
     output reg return_coin_pulse,
-    output reg selection_full_pulse
+    output reg selection_full_pulse,
+    // One-clock event used by the top level to show an insufficient-payment
+    // warning after the customer explicitly presses KEY3 to confirm.
+    output reg payment_insufficient_pulse
 );
 
     localparam ST_IDLE           = 3'd0;
@@ -40,6 +45,7 @@ module vending_machine_core #(
     reg [3:0] pending_code;
     reg [31:0] vend_counter;
     reg [7:0] money_next;
+    reg [8:0] money_sum_next;
     reg [1:0] qty_next;
 
     assign current_price = price_of(current_product_code);
@@ -146,19 +152,13 @@ module vending_machine_core #(
         end
     endtask
 
-    // At order confirmation, a retained balance may pay for the order
-    // immediately.  Otherwise enter payment and accumulate new money there.
+    // Confirming an order always enters payment.  A retained balance remains
+    // available there, but must be explicitly applied with KEY3 so a new
+    // purchase can never vend merely because its balance is sufficient.
     task confirm_order;
         begin
             paid_amount <= 8'd0;
-            if (change_due >= total_due) begin
-                change_due <= change_due - total_due;
-                vend_counter <= (VEND_TICKS > 0) ? (VEND_TICKS - 1) : 0;
-                vend_pulse <= 1'b1;
-                state <= ST_VEND;
-            end else begin
-                state <= ST_PAY;
-            end
+            state <= ST_PAY;
         end
     endtask
 
@@ -227,10 +227,12 @@ module vending_machine_core #(
             vend_pulse <= 1'b0;
             return_coin_pulse <= 1'b0;
             selection_full_pulse <= 1'b0;
+            payment_insufficient_pulse <= 1'b0;
         end else begin
             vend_pulse <= 1'b0;
             return_coin_pulse <= 1'b0;
             selection_full_pulse <= 1'b0;
+            payment_insufficient_pulse <= 1'b0;
 
             case (state)
                 ST_IDLE: begin
@@ -328,11 +330,11 @@ module vending_machine_core #(
                         end else begin
                             change_due <= money_next;
                         end
-                    end else if (key_change_pulse && (paid_amount != 8'd0)) begin
-                        paid_amount <= paid_amount - 8'd1;
-                        return_coin_pulse <= 1'b1;
-                    end else if (key_product_pulse) begin
-                        money_next = change_due + paid_amount + 8'd1;
+                    end else if (key_change_pulse) begin
+                        // KEY3 is the explicit payment confirmation.  Coins
+                        // and bills only accumulate here; even an amount above
+                        // total_due must wait for this confirmation.
+                        money_next = change_due + paid_amount;
                         if (money_next >= total_due) begin
                             paid_amount <= 8'd0;
                             change_due <= money_next - total_due;
@@ -340,18 +342,28 @@ module vending_machine_core #(
                             vend_pulse <= 1'b1;
                             state <= ST_VEND;
                         end else begin
+                            // Keep the payment and order intact, and let the
+                            // top level flash the green error LED twice.
+                            payment_insufficient_pulse <= 1'b1;
+                        end
+                    end else if (key_product_pulse) begin
+                        // Use a ninth bit for the limit check.  Amounts are
+                        // never allowed to wrap past the 8-bit 255-yuan cap.
+                        money_sum_next = {1'b0, change_due} +
+                                         {1'b0, paid_amount} + 9'd1;
+                        if (money_sum_next <= 9'd255) begin
                             paid_amount <= paid_amount + 8'd1;
+                        end else begin
+                            payment_insufficient_pulse <= 1'b1;
                         end
                     end else if (key_confirm_pulse) begin
-                        money_next = change_due + paid_amount + bill_value(sw[1:0]);
-                        if (money_next >= total_due) begin
-                            paid_amount <= 8'd0;
-                            change_due <= money_next - total_due;
-                            vend_counter <= (VEND_TICKS > 0) ? (VEND_TICKS - 1) : 0;
-                            vend_pulse <= 1'b1;
-                            state <= ST_VEND;
-                        end else begin
+                        money_sum_next = {1'b0, change_due} +
+                                         {1'b0, paid_amount} +
+                                         {1'b0, bill_value(sw[1:0])};
+                        if (money_sum_next <= 9'd255) begin
                             paid_amount <= paid_amount + bill_value(sw[1:0]);
+                        end else begin
+                            payment_insufficient_pulse <= 1'b1;
                         end
                     end
                 end

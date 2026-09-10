@@ -20,6 +20,7 @@ module tb_vending_machine_core;
     wire vend_pulse;
     wire return_coin_pulse;
     wire selection_full_pulse;
+    wire payment_insufficient_pulse;
 
     localparam ST_IDLE           = 3'd0;
     localparam ST_SELECT_PRODUCT = 3'd1;
@@ -49,7 +50,8 @@ module tb_vending_machine_core;
         .change_due(change_due),
         .vend_pulse(vend_pulse),
         .return_coin_pulse(return_coin_pulse),
-        .selection_full_pulse(selection_full_pulse)
+        .selection_full_pulse(selection_full_pulse),
+        .payment_insufficient_pulse(payment_insufficient_pulse)
     );
 
     always #5 clk = ~clk;
@@ -182,12 +184,22 @@ module tb_vending_machine_core;
         pulse_confirm();
         expect_state(ST_PAY);
 
-        // Insert 20 yuan bill, then 10 yuan bill. Machine should vend and require 4 yuan change.
+        // Insert 20 yuan bill, then press KEY3: payment remains active and
+        // emits an insufficient-payment warning.  A later sufficient amount
+        // also remains in ST_PAY until KEY3 explicitly confirms payment.
         sw = 4'b0010;
         pulse_confirm();
         expect_amount(8'd26, 8'd20, 8'd0);
+        pulse_change();
+        expect_state(ST_PAY);
+        expect_amount(8'd26, 8'd20, 8'd0);
+        if (payment_insufficient_pulse !== 1'b1)
+            $fatal(1, "Insufficient KEY3 confirmation did not issue warning");
         sw = 4'b0001;
         pulse_confirm();
+        expect_state(ST_PAY);
+        expect_amount(8'd26, 8'd30, 8'd0);
+        pulse_change();
         expect_state(ST_VEND);
         expect_amount(8'd26, 8'd0, 8'd4);
 
@@ -237,14 +249,15 @@ module tb_vending_machine_core;
         pulse_confirm();
         sw = 4'b0001;
         pulse_confirm();
+        pulse_change();
         expect_state(ST_VEND);
         expect_amount(8'd6, 8'd0, 8'd4);
         wait_cycles(5);
         expect_state(ST_CHANGE);
 
         // KEY1 starts another selection but preserves the 4 yuan balance.
-        // A11 x1 costs 3, so confirmation deducts the balance and vends
-        // immediately, leaving 1 yuan for the following order.
+        // A11 x1 costs 3.  Even though the balance is sufficient, KEY2 only
+        // enters payment; KEY3 must explicitly apply the balance and vend.
         sw = 4'h0;
         pulse_product();
         expect_state(ST_SELECT_PRODUCT);
@@ -255,6 +268,9 @@ module tb_vending_machine_core;
         expect_state(ST_ORDER_READY);
         expect_amount(8'd3, 8'd0, 8'd4);
         pulse_confirm();
+        expect_state(ST_PAY);
+        expect_amount(8'd3, 8'd0, 8'd4);
+        pulse_change();
         expect_state(ST_VEND);
         expect_amount(8'd3, 8'd0, 8'd1);
         wait_cycles(5);
@@ -277,6 +293,8 @@ module tb_vending_machine_core;
         pulse_product();
         expect_amount(8'd4, 8'd2, 8'd1);
         pulse_product();
+        expect_state(ST_PAY);
+        pulse_change();
         expect_state(ST_VEND);
         expect_amount(8'd4, 8'd0, 8'd0);
         wait_cycles(5);
@@ -370,6 +388,7 @@ module tb_vending_machine_core;
         pulse_confirm();
         sw = 4'b0001;
         pulse_confirm();
+        pulse_change();
         expect_state(ST_VEND);
         expect_amount(8'd6, 8'd0, 8'd4);
         wait_cycles(5);
@@ -412,6 +431,39 @@ module tb_vending_machine_core;
         pulse_change();
         pulse_change();
         expect_state(ST_IDLE);
+
+        // Amount registers retain the hundreds digit even though the display
+        // intentionally renders only the tens and ones positions.  Amounts
+        // above the 255-yuan limit are rejected without changing the balance.
+        sw = 4'h0;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0000;
+        pulse_product(); // A11 x1 costs 3.
+        pulse_confirm();
+        expect_state(ST_PAY);
+        sw = 4'b0011; // 50 yuan.
+        pulse_confirm();
+        pulse_confirm();
+        pulse_confirm();
+        pulse_confirm();
+        pulse_confirm();
+        expect_state(ST_PAY);
+        expect_amount(8'd3, 8'd250, 8'd0);
+        pulse_product();
+        pulse_product();
+        pulse_product();
+        pulse_product();
+        pulse_product();
+        expect_amount(8'd3, 8'd255, 8'd0);
+        pulse_product();
+        expect_state(ST_PAY);
+        expect_amount(8'd3, 8'd255, 8'd0);
+        if (payment_insufficient_pulse !== 1'b1)
+            $fatal(1, "Over-limit payment did not issue warning");
+        pulse_change();
+        expect_state(ST_VEND);
+        expect_amount(8'd3, 8'd0, 8'd252);
 
         $display("PASS: vending machine core simulation completed.");
         $finish;
