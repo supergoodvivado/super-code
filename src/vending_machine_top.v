@@ -1,7 +1,8 @@
 `timescale 1ns / 1ps
 
 module vending_machine_top #(
-    parameter FULL_BLINK_TICKS = 10_000_000 // 200 ms per phase at 50 MHz.
+    parameter FULL_BLINK_TICKS = 10_000_000, // 200 ms per phase at 50 MHz.
+    parameter PAYMENT_ERROR_BLINK_TICKS = 10_000_000
 ) (
     input wire clk,
     input wire [3:0] sw,
@@ -35,8 +36,11 @@ module vending_machine_top #(
     wire vend_pulse;
     wire return_coin_pulse;
     wire selection_full_pulse;
+    wire payment_insufficient_pulse;
     reg [31:0] full_blink_counter;
     reg [2:0] full_blink_phases;
+    reg [31:0] payment_error_blink_counter;
+    reg [2:0] payment_error_blink_phases;
     reg [15:0] buzzer_divider = 16'd0;
     reg [22:0] key_beep_counter = 23'd0;
     wire any_key_pulse;
@@ -116,7 +120,8 @@ module vending_machine_top #(
         .change_due(change_due),
         .vend_pulse(vend_pulse),
         .return_coin_pulse(return_coin_pulse),
-        .selection_full_pulse(selection_full_pulse)
+        .selection_full_pulse(selection_full_pulse),
+        .payment_insufficient_pulse(payment_insufficient_pulse)
     );
 
     seven_segment_scan display (
@@ -154,11 +159,37 @@ module vending_machine_top #(
         end
     end
 
+    // KEY3 with an insufficient payment keeps ST_PAY active and produces two
+    // short flashes on LED4, used as the red error indicator.
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            payment_error_blink_counter <= 32'd0;
+            payment_error_blink_phases <= 3'd0;
+        end else if (state != ST_PAY) begin
+            payment_error_blink_counter <= 32'd0;
+            payment_error_blink_phases <= 3'd0;
+        end else if (payment_error_blink_phases != 3'd0) begin
+            if (payment_error_blink_counter == 32'd0) begin
+                payment_error_blink_phases <= payment_error_blink_phases - 3'd1;
+                payment_error_blink_counter <= (PAYMENT_ERROR_BLINK_TICKS > 0) ?
+                                               PAYMENT_ERROR_BLINK_TICKS - 1 : 0;
+            end else begin
+                payment_error_blink_counter <= payment_error_blink_counter - 32'd1;
+            end
+        end else if (payment_insufficient_pulse) begin
+            payment_error_blink_phases <= 3'd4;
+            payment_error_blink_counter <= (PAYMENT_ERROR_BLINK_TICKS > 0) ?
+                                           PAYMENT_ERROR_BLINK_TICKS - 1 : 0;
+        end
+    end
+
     assign led[0] = (selected_count != 2'd0) &&
                     ((full_blink_phases == 3'd0) || full_blink_phases[0]);
     assign led[1] = (state == ST_PAY);
     assign led[2] = (state == ST_VEND) | vend_pulse;
-    assign led[3] = (state == ST_CHANGE) | return_coin_pulse;
+    assign led[3] = (state == ST_CHANGE) | return_coin_pulse |
+                    ((payment_error_blink_phases != 3'd0) &&
+                     !payment_error_blink_phases[0]);
 
     assign buzzer = buzz_enable ? buzzer_divider[15] : 1'b1;
 
