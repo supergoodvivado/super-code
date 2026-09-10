@@ -1,1 +1,5 @@
 /vivado_project_hx7a75c/
+
+# Vivado session journals and run logs (including backup copies).
+/vivado*.jou
+/vivado*.log

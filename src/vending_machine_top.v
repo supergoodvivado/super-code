@@ -1,8 +1,8 @@
 `timescale 1ns / 1ps
 
 module vending_machine_top #(
-    parameter FULL_BLINK_TICKS = 10_000_000, // 200 ms per phase at 50 MHz.
-    parameter PAYMENT_ERROR_BLINK_TICKS = 10_000_000
+    parameter FULL_BLINK_TICKS = 5_000_000, // 100 ms per phase at 50 MHz.
+    parameter PAYMENT_ERROR_BLINK_TICKS = 5_000_000
 ) (
     input wire clk,
     input wire [3:0] sw,
@@ -44,7 +44,9 @@ module vending_machine_top #(
     reg [15:0] buzzer_divider = 16'd0;
     reg [22:0] key_beep_counter = 23'd0;
     wire any_key_pulse;
-    wire buzz_enable;
+    wire normal_buzz_enable;
+    wire error_alert_active;
+    wire error_beep_enable;
     localparam ST_PAY    = 3'd4;
     localparam ST_ORDER_READY = 3'd3;
     localparam ST_VEND   = 3'd5;
@@ -54,7 +56,17 @@ module vending_machine_top #(
     assign reset = power_on_reset || ((sw == 4'hF) && cancel_level);
     assign cancel_pulse = cancel_pulse_raw && (sw != 4'hF);
     assign any_key_pulse = product_pulse | confirm_pulse | change_pulse | cancel_pulse_raw;
-    assign buzz_enable = (state == ST_VEND) | (key_beep_counter != 23'd0);
+    // A limit violation flashes the green order LED.  Each alert has four
+    // 100-ms phases: green/on, off, green/on, off.  The buzzer uses the same
+    // on phases, producing exactly two short synchronized beeps.
+    assign error_alert_active = (full_blink_phases != 3'd0) ||
+                                (payment_error_blink_phases != 3'd0);
+    assign error_beep_enable = ((full_blink_phases != 3'd0) &&
+                                !full_blink_phases[0]) ||
+                               ((payment_error_blink_phases != 3'd0) &&
+                                !payment_error_blink_phases[0]);
+    assign normal_buzz_enable = (state == ST_VEND) |
+                                (key_beep_counter != 23'd0);
 
     always @(posedge clk) begin
         if (power_on_reset_count != 20'hFFFFF) begin
@@ -137,8 +149,8 @@ module vending_machine_top #(
         .sel(sel)
     );
 
-    // LED1 is normally on for an order: off/on/off/on gives two flashes.
-    // Ignore retriggers during a flash sequence; leaving order ready clears it.
+    // More than two product types is a green alert.  Ignore retriggers
+    // during a flash sequence; leaving order ready clears it.
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             full_blink_counter <= 32'd0;
@@ -159,8 +171,8 @@ module vending_machine_top #(
         end
     end
 
-    // KEY3 with an insufficient payment keeps ST_PAY active and produces two
-    // short flashes on LED4, used as the red error indicator.
+    // An insufficient confirmation or an amount above 255 keeps ST_PAY active
+    // and produces the same two green flashes.
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             payment_error_blink_counter <= 32'd0;
@@ -183,14 +195,17 @@ module vending_machine_top #(
         end
     end
 
+    // During an alert the green order LED follows the two beep windows;
+    // otherwise it remains steadily on while the order is non-empty.
     assign led[0] = (selected_count != 2'd0) &&
-                    ((full_blink_phases == 3'd0) || full_blink_phases[0]);
+                    (!error_alert_active || error_beep_enable);
     assign led[1] = (state == ST_PAY);
     assign led[2] = (state == ST_VEND) | vend_pulse;
-    assign led[3] = (state == ST_CHANGE) | return_coin_pulse |
-                    ((payment_error_blink_phases != 3'd0) &&
-                     !payment_error_blink_phases[0]);
+    assign led[3] = (state == ST_CHANGE) | return_coin_pulse;
 
-    assign buzzer = buzz_enable ? buzzer_divider[15] : 1'b1;
+    // While an alert is running it owns the buzzer, preventing the ordinary
+    // key-click tone from filling the silent gap between the beeps.
+    assign buzzer = (error_alert_active ? error_beep_enable : normal_buzz_enable)
+                    ? buzzer_divider[15] : 1'b1;
 
 endmodule
