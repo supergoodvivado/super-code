@@ -430,7 +430,8 @@ module tb_vending_machine_core;
         expect_state(ST_IDLE);
 
         // Amount registers retain the hundreds digit even though the display
-        // intentionally renders only the tens and ones positions.
+        // intentionally renders only the tens and ones positions.  Amounts
+        // above the 255-yuan limit are rejected without changing the balance.
         sw = 4'h0;
         pulse_product();
         pulse_product();
@@ -441,11 +442,25 @@ module tb_vending_machine_core;
         sw = 4'b0011; // 50 yuan.
         pulse_confirm();
         pulse_confirm();
+        pulse_confirm();
+        pulse_confirm();
+        pulse_confirm();
         expect_state(ST_PAY);
-        expect_amount(8'd3, 8'd100, 8'd0);
+        expect_amount(8'd3, 8'd250, 8'd0);
+        pulse_product();
+        pulse_product();
+        pulse_product();
+        pulse_product();
+        pulse_product();
+        expect_amount(8'd3, 8'd255, 8'd0);
+        pulse_product();
+        expect_state(ST_PAY);
+        expect_amount(8'd3, 8'd255, 8'd0);
+        if (payment_insufficient_pulse !== 1'b1)
+            $fatal(1, "Over-limit payment did not issue warning");
         pulse_change();
         expect_state(ST_VEND);
-        expect_amount(8'd3, 8'd0, 8'd97);
+        expect_amount(8'd3, 8'd0, 8'd252);
 
         $display("PASS: vending machine core simulation completed.");
         $finish;

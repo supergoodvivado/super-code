@@ -45,6 +45,7 @@ module vending_machine_core #(
     reg [3:0] pending_code;
     reg [31:0] vend_counter;
     reg [7:0] money_next;
+    reg [8:0] money_sum_next;
     reg [1:0] qty_next;
 
     assign current_price = price_of(current_product_code);
@@ -352,11 +353,24 @@ module vending_machine_core #(
                             payment_insufficient_pulse <= 1'b1;
                         end
                     end else if (key_product_pulse) begin
-                        money_next = change_due + paid_amount + 8'd1;
-                        paid_amount <= paid_amount + 8'd1;
+                        // Use a ninth bit for the limit check.  Amounts are
+                        // never allowed to wrap past the 8-bit 255-yuan cap.
+                        money_sum_next = {1'b0, change_due} +
+                                         {1'b0, paid_amount} + 9'd1;
+                        if (money_sum_next <= 9'd255) begin
+                            paid_amount <= paid_amount + 8'd1;
+                        end else begin
+                            payment_insufficient_pulse <= 1'b1;
+                        end
                     end else if (key_confirm_pulse) begin
-                        money_next = change_due + paid_amount + bill_value(sw[1:0]);
-                        paid_amount <= paid_amount + bill_value(sw[1:0]);
+                        money_sum_next = {1'b0, change_due} +
+                                         {1'b0, paid_amount} +
+                                         {1'b0, bill_value(sw[1:0])};
+                        if (money_sum_next <= 9'd255) begin
+                            paid_amount <= paid_amount + bill_value(sw[1:0]);
+                        end else begin
+                            payment_insufficient_pulse <= 1'b1;
+                        end
                     end
                 end
 
