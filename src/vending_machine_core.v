@@ -152,19 +152,13 @@ module vending_machine_core #(
         end
     endtask
 
-    // At order confirmation, a retained balance may pay for the order
-    // immediately.  Otherwise enter payment and accumulate new money there.
+    // Confirming an order always enters payment.  A retained balance remains
+    // available there, but must be explicitly applied with KEY3 so a new
+    // purchase can never vend merely because its balance is sufficient.
     task confirm_order;
         begin
             paid_amount <= 8'd0;
-            if (change_due >= total_due) begin
-                change_due <= change_due - total_due;
-                vend_counter <= (VEND_TICKS > 0) ? (VEND_TICKS - 1) : 0;
-                vend_pulse <= 1'b1;
-                state <= ST_VEND;
-            end else begin
-                state <= ST_PAY;
-            end
+            state <= ST_PAY;
         end
     endtask
 
@@ -349,7 +343,7 @@ module vending_machine_core #(
                             state <= ST_VEND;
                         end else begin
                             // Keep the payment and order intact, and let the
-                            // top level flash the red error LED twice.
+                            // top level flash the green error LED twice.
                             payment_insufficient_pulse <= 1'b1;
                         end
                     end else if (key_product_pulse) begin

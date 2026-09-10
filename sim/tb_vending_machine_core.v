@@ -256,8 +256,8 @@ module tb_vending_machine_core;
         expect_state(ST_CHANGE);
 
         // KEY1 starts another selection but preserves the 4 yuan balance.
-        // A11 x1 costs 3, so confirmation deducts the balance and vends
-        // immediately, leaving 1 yuan for the following order.
+        // A11 x1 costs 3.  Even though the balance is sufficient, KEY2 only
+        // enters payment; KEY3 must explicitly apply the balance and vend.
         sw = 4'h0;
         pulse_product();
         expect_state(ST_SELECT_PRODUCT);
@@ -268,6 +268,9 @@ module tb_vending_machine_core;
         expect_state(ST_ORDER_READY);
         expect_amount(8'd3, 8'd0, 8'd4);
         pulse_confirm();
+        expect_state(ST_PAY);
+        expect_amount(8'd3, 8'd0, 8'd4);
+        pulse_change();
         expect_state(ST_VEND);
         expect_amount(8'd3, 8'd0, 8'd1);
         wait_cycles(5);
