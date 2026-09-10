@@ -142,6 +142,7 @@ module vending_machine_top #(
         .state(state),
         .product_code(current_product_code),
         .quantity(current_quantity),
+        .selected_count(selected_count),
         .total_due(total_due),
         .paid_amount(paid_amount),
         .change_due(change_due),

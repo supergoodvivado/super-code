@@ -10,6 +10,7 @@ module seven_segment_scan #(
     input wire [2:0] state,
     input wire [3:0] product_code,
     input wire [1:0] quantity,
+    input wire [1:0] selected_count,
     input wire [7:0] total_due,
     input wire [7:0] paid_amount,
     input wire [7:0] change_due,
@@ -23,11 +24,18 @@ module seven_segment_scan #(
     reg [7:0] seg_active_low;
     reg [7:0] sel_active_high;
     wire [7:0] aux_amount;
+    wire show_order_total;
 
     assign scan_index = refresh_count[REFRESH_BITS-1:REFRESH_BITS-3];
     // change_due is also the reusable balance when a new order starts from
     // the change state.  During payment, include newly inserted money.
     assign aux_amount = (state == 3'd4) ? (change_due + paid_amount) : change_due;
+    // When item 2 is being selected, item 1 has already been committed.
+    // Keep its subtotal visible in digits 5 and 6; the first item's selection
+    // still shows 00 until that item has been confirmed.
+    assign show_order_total = (state >= 3'd3) ||
+                              (((state == 3'd1) || (state == 3'd2)) &&
+                               (selected_count == 2'd1));
 
     function [3:0] tens_digit;
         input [7:0] value;
@@ -106,11 +114,11 @@ module seven_segment_scan #(
             end
             3'd4: begin
                 sel_active_high = 8'b0001_0000;
-                digit = (state >= 3'd3) ? tens_digit(total_due) : 4'd0;
+                digit = show_order_total ? tens_digit(total_due) : 4'd0;
             end
             3'd5: begin
                 sel_active_high = 8'b0010_0000;
-                digit = (state >= 3'd3) ? ones_digit(total_due) : 4'd0;
+                digit = show_order_total ? ones_digit(total_due) : 4'd0;
             end
             3'd6: begin
                 sel_active_high = 8'b0100_0000;
