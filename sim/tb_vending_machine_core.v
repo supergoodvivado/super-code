@@ -1,6 +1,7 @@
 `timescale 1ns / 1ps
 
 module tb_vending_machine_core;
+    // 缩短出货计数周期，便于在仿真中覆盖完整购买流程。
 
     reg clk;
     reg reset;
@@ -56,8 +57,11 @@ module tb_vending_machine_core;
         .payment_insufficient_pulse(payment_insufficient_pulse)
     );
 
+    // 10 ns 周期仅用于加快行为仿真；设计逻辑按时钟拍数工作，不依赖此处频率。
     always #5 clk = ~clk;
 
+    // 四个 pulse_* 任务都在下降沿改变输入，使脉冲完整覆盖下一个上升沿，
+    // 避免测试激励与 DUT 的 posedge 时序逻辑发生竞争。
     task pulse_product;
         begin
             @(negedge clk);
@@ -97,6 +101,7 @@ module tb_vending_machine_core;
     task expect_state;
         input [2:0] expected;
         begin
+            // 使用 case inequality（!==），这样 X/Z 未知态也会立即判为失败。
             if (state !== expected) begin
                 $display("ERROR: expected state %0d, got %0d at %0t", expected, state, $time);
                 $finish;
@@ -109,6 +114,7 @@ module tb_vending_machine_core;
         input [7:0] expected_paid;
         input [7:0] expected_change;
         begin
+            // 每个关键步骤同时检查订单、投入和余额，防止只看状态而漏掉金额错误。
             if ((total_due !== expected_due) ||
                 (paid_amount !== expected_paid) ||
                 (change_due !== expected_change)) begin
@@ -135,6 +141,7 @@ module tb_vending_machine_core;
     integer populated;
 
     initial begin
+        // 所有按键脉冲先置零；复位保持三个周期，再等待一拍后开始检查。
         clk = 1'b0;
         reset = 1'b1;
         sw = 4'd0;
@@ -148,7 +155,7 @@ module tb_vending_machine_core;
         wait_cycles(1);
         expect_state(ST_IDLE);
 
-        // Wake the machine, then select A13 and quantity 3: 6 * 3 = 18.
+        // 唤醒机器，选择 A13、数量 3：6 × 3 = 18 元。
         sw = 4'h2;
         pulse_product();
         expect_state(ST_SELECT_PRODUCT);
@@ -159,7 +166,7 @@ module tb_vending_machine_core;
         expect_state(ST_ORDER_READY);
         expect_amount(8'd18, 8'd0, 8'd0);
 
-        // Select A42, then quantity 2: 4 * 2 = 8. Total becomes 26.
+        // 再选择 A42、数量 2：4 × 2 = 8 元，订单总价变为 26 元。
         sw = 4'hD;
         pulse_product();
         expect_state(ST_SELECT_PRODUCT);
@@ -170,7 +177,7 @@ module tb_vending_machine_core;
         expect_state(ST_ORDER_READY);
         expect_amount(8'd26, 8'd0, 8'd0);
 
-        // A full order rejects KEY1 without changing the displayed product/order.
+        // 已选满两种商品后拒绝 KEY1，当前商品和订单内容都不能改变。
         sw = 4'hA;
         pulse_product();
         expect_state(ST_ORDER_READY);
@@ -186,9 +193,8 @@ module tb_vending_machine_core;
         pulse_confirm();
         expect_state(ST_PAY);
 
-        // Insert 20 yuan bill, then press KEY3: payment remains active and
-        // emits an insufficient-payment warning.  A later sufficient amount
-        // also remains in ST_PAY until KEY3 explicitly confirms payment.
+        // 投入 20 元后按 KEY3，金额不足，应停留在付款状态并发出提示。
+        // 后续金额足够时仍不能自动出货，必须再次按 KEY3 明确确认。
         sw = 4'b0010;
         pulse_confirm();
         expect_amount(8'd26, 8'd20, 8'd0);
@@ -216,7 +222,7 @@ module tb_vending_machine_core;
         expect_state(ST_IDLE);
         expect_amount(8'd0, 8'd0, 8'd0);
 
-        // Start a second transaction and cancel during payment.
+        // 开始第二笔交易，并验证付款过程中取消会进入退款状态。
         sw = 4'h4;
         pulse_product();
         expect_state(ST_SELECT_PRODUCT);
@@ -241,8 +247,8 @@ module tb_vending_machine_core;
         expect_state(ST_IDLE);
         expect_amount(8'd0, 8'd0, 8'd0);
 
-        // Retain 4 yuan change as a balance, then use it for a new order.
-        // A13 x1 costs 6 yuan; 10 yuan leaves a 4 yuan balance.
+        // A13 ×1 售价 6 元，投入 10 元后留下 4 元零钱；
+        // 不立即取走零钱，将其作为下一笔订单的余额继续使用。
         sw = 4'h2;
         pulse_product();
         pulse_product();
@@ -257,9 +263,8 @@ module tb_vending_machine_core;
         wait_cycles(5);
         expect_state(ST_CHANGE);
 
-        // KEY1 starts another selection but preserves the 4 yuan balance.
-        // A11 x1 costs 3.  Even though the balance is sufficient, KEY2 only
-        // enters payment; KEY3 must explicitly apply the balance and vend.
+        // KEY1 开始新选择时保留 4 元余额。A11 ×1 售价 3 元，
+        // 即使余额足够，KEY2 也只进入付款状态，仍需 KEY3 确认后出货。
         sw = 4'h0;
         pulse_product();
         expect_state(ST_SELECT_PRODUCT);
@@ -278,8 +283,7 @@ module tb_vending_machine_core;
         wait_cycles(5);
         expect_state(ST_CHANGE);
 
-        // A12 x1 costs 4.  The retained 1 yuan is insufficient, so three
-        // more 1-yuan coins complete the payment.
+        // A12 ×1 售价 4 元，已有余额 1 元，再投入三个 1 元硬币完成付款。
         sw = 4'h1;
         pulse_product();
         pulse_product();
@@ -302,14 +306,14 @@ module tb_vending_machine_core;
         wait_cycles(5);
         expect_state(ST_IDLE);
 
-        // KEY3 returns from first-product selection to idle.
+        // 尚未确认第一种商品时，KEY3 从商品选择页返回空闲状态。
         sw = 4'h4;
         pulse_product();
         expect_state(ST_SELECT_PRODUCT);
         pulse_change();
         expect_state(ST_IDLE);
 
-        // Commit A13 x1 as the first item.
+        // 将 A13 ×1 确认为第一种商品。
         sw = 4'h2;
         pulse_product();
         pulse_product();
@@ -318,8 +322,8 @@ module tb_vending_machine_core;
         expect_state(ST_ORDER_READY);
         expect_amount(8'd6, 8'd0, 8'd0);
 
-        // KEY3 at confirmation pops item 1 before reopening its quantity.
-        // Continuing through quantity and product selection reaches idle.
+        // 确认页按 KEY3 时先撤销第一种商品，再进入其数量页；
+        // 继续从数量页、商品页逐级回退，最终应到达空闲状态。
         pulse_change();
         expect_state(ST_SELECT_QTY);
         expect_amount(8'd0, 8'd0, 8'd0);
@@ -332,7 +336,7 @@ module tb_vending_machine_core;
         pulse_change();
         expect_state(ST_IDLE);
 
-        // Commit A13 x1 again for the two-item navigation checks.
+        // 再次确认 A13 ×1，为两种商品的回退测试建立初始订单。
         sw = 4'h2;
         pulse_product();
         pulse_product();
@@ -341,7 +345,7 @@ module tb_vending_machine_core;
         expect_state(ST_ORDER_READY);
         expect_amount(8'd6, 8'd0, 8'd0);
 
-        // Start choosing item 2, then KEY3 returns to item 1 confirmation.
+        // 开始选择第二种商品后按 KEY3，应返回第一种商品确认页。
         sw = 4'hD;
         pulse_product();
         expect_state(ST_SELECT_PRODUCT);
@@ -350,8 +354,8 @@ module tb_vending_machine_core;
         if (current_product_code !== 4'h2 || current_quantity !== 1)
             $fatal(1, "KEY3 did not return from item 2 selection");
 
-        // Commit A42 x2.  Reopening it pops only item 2, so the order and
-        // displayed subtotal retain A13 x1.  Confirming adds edited item 2.
+        // 确认 A42 ×2。回退编辑时只撤销第二种商品，订单保留 A13 ×1；
+        // 再次确认数量后，将修改后的第二种商品重新加入订单。
         sw = 4'hD;
         pulse_product();
         pulse_product();
@@ -370,8 +374,8 @@ module tb_vending_machine_core;
         expect_state(ST_ORDER_READY);
         expect_amount(8'd18, 8'd0, 8'd0);
 
-        // Repeated KEY3 presses unwind item 2 and item 1 without returning
-        // to the original two-item total or entering a 3 -> 2 -> 1 loop.
+        // 连续按 KEY3 应依次撤销第二种和第一种商品，不能恢复原两件总价，
+        // 也不能再次进入 3→2→1 的循环。
         pulse_change();
         expect_state(ST_SELECT_QTY);
         expect_amount(8'd6, 8'd0, 8'd0);
@@ -392,7 +396,7 @@ module tb_vending_machine_core;
         pulse_change();
         expect_state(ST_IDLE);
 
-        // KEY4 in all selection states returns idle when no balance exists.
+        // 没有余额时，在所有选择状态按 KEY4 都应返回空闲状态。
         sw = 4'h4;
         pulse_product();
         expect_state(ST_SELECT_PRODUCT);
@@ -413,8 +417,8 @@ module tb_vending_machine_core;
         pulse_cancel();
         expect_state(ST_IDLE);
 
-        // Create a 4 yuan balance, then verify KEY4 in every selection state
-        // discards the order and enters the refund state with that balance.
+        // 建立 4 元余额，验证各选择状态下 KEY4 都会取消订单，
+        // 同时保留余额并进入退款状态。
         sw = 4'h2;
         pulse_product();
         pulse_product();
@@ -429,7 +433,7 @@ module tb_vending_machine_core;
         wait_cycles(5);
         expect_state(ST_CHANGE);
 
-        // In first-product selection, KEY3 matches KEY4 when a balance exists.
+        // 有余额且正在选择第一种商品时，KEY3 与 KEY4 一样进入退款状态。
         sw = 4'h4;
         pulse_product();
         expect_state(ST_SELECT_PRODUCT);
@@ -467,17 +471,16 @@ module tb_vending_machine_core;
         pulse_change();
         expect_state(ST_IDLE);
 
-        // Amount registers retain the hundreds digit even though the display
-        // intentionally renders only the tens and ones positions.  Amounts
-        // above the 255-yuan limit are rejected without changing the balance.
+        // 金额寄存器保留百位数据，但数码管只显示十位和个位；
+        // 超过 255 元的投入必须被拒绝，且不能改变已有金额。
         sw = 4'h0;
         pulse_product();
         pulse_product();
         sw = 4'b0000;
-        pulse_product(); // A11 x1 costs 3.
+        pulse_product(); // A11 ×1 售价 3 元
         pulse_confirm();
         expect_state(ST_PAY);
-        sw = 4'b0011; // 50 yuan.
+        sw = 4'b0011; // 选择 50 元纸币
         pulse_confirm();
         pulse_confirm();
         pulse_confirm();
