@@ -31,6 +31,7 @@ module vending_machine_top #(
     wire [1:0] current_quantity;
     wire [7:0] current_price;
     wire [7:0] total_due;
+    wire [7:0] first_item_total;
     wire [7:0] paid_amount;
     wire [7:0] change_due;
     wire vend_pulse;
@@ -128,6 +129,7 @@ module vending_machine_top #(
         .current_quantity(current_quantity),
         .current_price(current_price),
         .total_due(total_due),
+        .first_item_total(first_item_total),
         .paid_amount(paid_amount),
         .change_due(change_due),
         .vend_pulse(vend_pulse),
@@ -144,6 +146,7 @@ module vending_machine_top #(
         .quantity(current_quantity),
         .selected_count(selected_count),
         .total_due(total_due),
+        .first_item_total(first_item_total),
         .paid_amount(paid_amount),
         .change_due(change_due),
         .seg(seg),

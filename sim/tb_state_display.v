@@ -6,6 +6,7 @@ module tb_state_display;
     reg [2:0] state;
     reg [1:0] selected_count;
     reg [7:0] total_due;
+    reg [7:0] first_item_total;
     reg [7:0] paid_amount;
     reg [7:0] change_due;
     wire [7:0] seg;
@@ -16,6 +17,7 @@ module tb_state_display;
         .clk(clk), .reset(reset), .state(state),
         .product_code(4'd0), .quantity(2'd0), .total_due(total_due),
         .selected_count(selected_count),
+        .first_item_total(first_item_total),
         .paid_amount(paid_amount), .change_due(change_due), .seg(seg), .sel(sel)
     );
 
@@ -43,6 +45,7 @@ module tb_state_display;
     initial begin
         selected_count = 0;
         total_due = 0;
+        first_item_total = 0;
         // Force the first digit of the multiplexed display for direct checking.
         force dut.scan_index = 3'd0;
         for (expected_state = 0; expected_state < 7;
@@ -78,6 +81,7 @@ module tb_state_display;
         state = 3'd1;
         selected_count = 0;
         total_due = 8'd18;
+        first_item_total = 8'd18;
         force dut.scan_index = 3'd4;
         #1;
         if (seg !== expected_seg(0)) $fatal(1, "Item-1 selection subtotal should be 00");
@@ -94,6 +98,27 @@ module tb_state_display;
         force dut.scan_index = 3'd5;
         #1;
         if (seg !== expected_seg(8)) $fatal(1, "Item-2 quantity subtotal ones digit incorrect");
+
+        // Reopening item 2 pops it from the committed order.  The selection
+        // page and the resulting item-1 confirmation both display 18.
+        selected_count = 1;
+        total_due = 8'd18;
+        first_item_total = 8'd18;
+        force dut.scan_index = 3'd4;
+        #1;
+        if (seg !== expected_seg(1)) $fatal(1, "Reopened item-2 subtotal tens digit incorrect");
+        force dut.scan_index = 3'd5;
+        #1;
+        if (seg !== expected_seg(8)) $fatal(1, "Reopened item-2 subtotal ones digit incorrect");
+
+        // Returning to state 3 now confirms only the retained first item.
+        state = 3'd3;
+        force dut.scan_index = 3'd4;
+        #1;
+        if (seg !== expected_seg(1)) $fatal(1, "Order total tens digit incorrect after return");
+        force dut.scan_index = 3'd5;
+        #1;
+        if (seg !== expected_seg(8)) $fatal(1, "Order total ones digit incorrect after return");
         release dut.scan_index;
         $display("PASS: state codes and reusable balance display are correct.");
         $finish;

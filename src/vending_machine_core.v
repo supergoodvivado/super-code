@@ -18,6 +18,7 @@ module vending_machine_core #(
     // Eight bits retain amounts up to 255 yuan; the display intentionally
     // renders only the low two decimal digits.
     output reg [7:0] total_due,
+    output wire [7:0] first_item_total,
     output reg [7:0] paid_amount,
     output reg [7:0] change_due,
     output reg vend_pulse,
@@ -49,6 +50,7 @@ module vending_machine_core #(
     reg [1:0] qty_next;
 
     assign current_price = price_of(current_product_code);
+    assign first_item_total = has_item1 ? line_total(item1_code, item1_qty) : 8'd0;
 
     function [7:0] price_of;
         input [3:0] code;
@@ -295,16 +297,28 @@ module vending_machine_core #(
                     if (key_cancel_pulse) begin
                         cancel_order();
                     end else if (key_change_pulse) begin
-                        // KEY3 reopens the quantity page for the last item.
-                        // Existing commit logic then replaces that quantity.
+                        // KEY3 pops the last committed item before reopening
+                        // its quantity page.  Confirming it again commits the
+                        // edited item; continuing to press KEY3 can therefore
+                        // walk back through item 2, item 1, and finally idle.
                         if (has_item2) begin
                             pending_code <= item2_code;
                             current_product_code <= item2_code;
                             current_quantity <= item2_qty;
+                            has_item2 <= 1'b0;
+                            item2_code <= 4'd0;
+                            item2_qty <= 2'd0;
+                            selected_count <= 2'd1;
+                            total_due <= line_total(item1_code, item1_qty);
                         end else begin
                             pending_code <= item1_code;
                             current_product_code <= item1_code;
                             current_quantity <= item1_qty;
+                            has_item1 <= 1'b0;
+                            item1_code <= 4'd0;
+                            item1_qty <= 2'd0;
+                            selected_count <= 2'd0;
+                            total_due <= 8'd0;
                         end
                         state <= ST_SELECT_QTY;
                     end else if (key_product_pulse) begin

@@ -15,6 +15,7 @@ module tb_vending_machine_core;
     wire [1:0] current_quantity;
     wire [7:0] current_price;
     wire [7:0] total_due;
+    wire [7:0] first_item_total;
     wire [7:0] paid_amount;
     wire [7:0] change_due;
     wire vend_pulse;
@@ -46,6 +47,7 @@ module tb_vending_machine_core;
         .current_quantity(current_quantity),
         .current_price(current_price),
         .total_due(total_due),
+        .first_item_total(first_item_total),
         .paid_amount(paid_amount),
         .change_due(change_due),
         .vend_pulse(vend_pulse),
@@ -316,19 +318,28 @@ module tb_vending_machine_core;
         expect_state(ST_ORDER_READY);
         expect_amount(8'd6, 8'd0, 8'd0);
 
-        // KEY3 at confirmation reopens item 1 quantity; KEY3 there returns
-        // to product selection, and KEY3 while selecting item 1 returns to
-        // its original confirmation page.
+        // KEY3 at confirmation pops item 1 before reopening its quantity.
+        // Continuing through quantity and product selection reaches idle.
         pulse_change();
         expect_state(ST_SELECT_QTY);
+        expect_amount(8'd0, 8'd0, 8'd0);
+        if (selected_count !== 0 || first_item_total !== 0)
+            $fatal(1, "KEY3 did not pop item 1 before editing");
         if (current_product_code !== 4'h2 || current_quantity !== 1)
             $fatal(1, "KEY3 did not restore item 1 quantity");
         pulse_change();
         expect_state(ST_SELECT_PRODUCT);
         pulse_change();
+        expect_state(ST_IDLE);
+
+        // Commit A13 x1 again for the two-item navigation checks.
+        sw = 4'h2;
+        pulse_product();
+        pulse_product();
+        sw = 4'b0000;
+        pulse_product();
         expect_state(ST_ORDER_READY);
-        if (current_product_code !== 4'h2 || current_quantity !== 1)
-            $fatal(1, "KEY3 did not restore item 1 confirmation");
+        expect_amount(8'd6, 8'd0, 8'd0);
 
         // Start choosing item 2, then KEY3 returns to item 1 confirmation.
         sw = 4'hD;
@@ -339,7 +350,8 @@ module tb_vending_machine_core;
         if (current_product_code !== 4'h2 || current_quantity !== 1)
             $fatal(1, "KEY3 did not return from item 2 selection");
 
-        // Commit A42 x2, then reopen and replace its quantity with 3.
+        // Commit A42 x2.  Reopening it pops only item 2, so the order and
+        // displayed subtotal retain A13 x1.  Confirming adds edited item 2.
         sw = 4'hD;
         pulse_product();
         pulse_product();
@@ -348,13 +360,36 @@ module tb_vending_machine_core;
         expect_amount(8'd14, 8'd0, 8'd0);
         pulse_change();
         expect_state(ST_SELECT_QTY);
+        expect_amount(8'd6, 8'd0, 8'd0);
+        if (selected_count !== 1 || first_item_total !== 6)
+            $fatal(1, "KEY3 did not retain only item 1 while editing item 2");
         if (current_product_code !== 4'hD || current_quantity !== 2)
             $fatal(1, "KEY3 did not restore item 2 quantity");
         sw = 4'b0010;
         pulse_product();
         expect_state(ST_ORDER_READY);
         expect_amount(8'd18, 8'd0, 8'd0);
-        pulse_cancel();
+
+        // Repeated KEY3 presses unwind item 2 and item 1 without returning
+        // to the original two-item total or entering a 3 -> 2 -> 1 loop.
+        pulse_change();
+        expect_state(ST_SELECT_QTY);
+        expect_amount(8'd6, 8'd0, 8'd0);
+        pulse_change();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_change();
+        expect_state(ST_ORDER_READY);
+        expect_amount(8'd6, 8'd0, 8'd0);
+        if (selected_count !== 1 || current_product_code !== 4'h2)
+            $fatal(1, "KEY3 did not return to the item-1 confirmation page");
+        pulse_change();
+        expect_state(ST_SELECT_QTY);
+        expect_amount(8'd0, 8'd0, 8'd0);
+        if (current_product_code !== 4'h2 || selected_count !== 0)
+            $fatal(1, "KEY3 did not reach the item-1 quantity page");
+        pulse_change();
+        expect_state(ST_SELECT_PRODUCT);
+        pulse_change();
         expect_state(ST_IDLE);
 
         // KEY4 in all selection states returns idle when no balance exists.
