@@ -84,6 +84,15 @@ vivado_project_hx7a75c/vending_machine_hx7a75c.runs/impl_1/vending_machine_top.b
 - DIG/LED 拨到数码管模式时，8 位数码管工作。
 - BUZ/SW 拨到蜂鸣器模式时，按键提示音和出货提示音工作。
 
+## LED 状态提示
+
+- LED1：订单已选择；订单已满、付款不足、金额超限或商品缺货时闪烁。
+- LED2：正在付款。
+- LED3：正在出货。
+- LED4：正在找零/退款，或处于管理员模式。
+
+缺货时 LED1 会闪烁两次，并同步发出提示音；管理员模式下 LED4 常亮。
+
 ## 当前显示状态机
 
 - 初始显示：`00000000`

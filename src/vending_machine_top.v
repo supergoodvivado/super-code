@@ -2,7 +2,8 @@
 
 module vending_machine_top #(
     parameter FULL_BLINK_TICKS = 5_000_000, // 100 ms per phase at 50 MHz.
-    parameter PAYMENT_ERROR_BLINK_TICKS = 5_000_000
+    parameter PAYMENT_ERROR_BLINK_TICKS = 5_000_000,
+    parameter SOLD_OUT_BLINK_TICKS = 5_000_000
 ) (
     input wire clk,
     input wire [3:0] sw,
@@ -46,6 +47,8 @@ module vending_machine_top #(
     reg [2:0] full_blink_phases;
     reg [31:0] payment_error_blink_counter;
     reg [2:0] payment_error_blink_phases;
+    reg [31:0] sold_out_blink_counter;
+    reg [2:0] sold_out_blink_phases;
     reg [15:0] buzzer_divider = 16'd0;
     reg [22:0] key_beep_counter = 23'd0;
     wire any_key_pulse;
@@ -69,11 +72,14 @@ module vending_machine_top #(
     // on phases, producing exactly two short synchronized beeps.
     assign error_alert_active = (full_blink_phases != 3'd0) ||
                                 (payment_error_blink_phases != 3'd0) ||
+                                (sold_out_blink_phases != 3'd0) ||
                                 sold_out_pulse || change_unavailable_pulse;
     assign error_beep_enable = ((full_blink_phases != 3'd0) &&
                                 !full_blink_phases[0]) ||
                                ((payment_error_blink_phases != 3'd0) &&
-                                !payment_error_blink_phases[0]);
+                                !payment_error_blink_phases[0]) ||
+                               ((sold_out_blink_phases != 3'd0) &&
+                                !sold_out_blink_phases[0]);
     assign normal_buzz_enable = (state == ST_VEND) |
                                 (key_beep_counter != 23'd0);
 
@@ -231,13 +237,36 @@ module vending_machine_top #(
         end
     end
 
+    // Hold the one-clock sold-out event as a visible two-flash alert.
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            sold_out_blink_counter <= 32'd0;
+            sold_out_blink_phases <= 3'd0;
+        end else if (sold_out_blink_phases != 3'd0) begin
+            if (sold_out_blink_counter == 32'd0) begin
+                sold_out_blink_phases <= sold_out_blink_phases - 3'd1;
+                sold_out_blink_counter <= (SOLD_OUT_BLINK_TICKS > 0) ?
+                                           SOLD_OUT_BLINK_TICKS - 1 : 0;
+            end else begin
+                sold_out_blink_counter <= sold_out_blink_counter - 32'd1;
+            end
+        end else if (sold_out_pulse) begin
+            sold_out_blink_phases <= 3'd4;
+            sold_out_blink_counter <= (SOLD_OUT_BLINK_TICKS > 0) ?
+                                       SOLD_OUT_BLINK_TICKS - 1 : 0;
+        end
+    end
+
     // During an alert the green order LED follows the two beep windows;
     // otherwise it remains steadily on while the order is non-empty.
-    assign led[0] = (selected_count != 2'd0) &&
+    assign led[0] = ((selected_count != 2'd0) || error_alert_active) &&
                     (!error_alert_active || error_beep_enable);
     assign led[1] = (state == ST_PAY);
     assign led[2] = (state == ST_VEND) | vend_pulse;
-    assign led[3] = (state == ST_CHANGE) | return_coin_pulse;
+    assign led[3] = (state == ST_CHANGE) | return_coin_pulse |
+                    (state == ST_ADMIN_SELECT) |
+                    (state == ST_ADMIN_VIEW) |
+                    (state == ST_ADMIN_PRICE);
 
     // While an alert is running it owns the buzzer, preventing the ordinary
     // key-click tone from filling the silent gap between the beeps.
