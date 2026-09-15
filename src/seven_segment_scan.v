@@ -117,7 +117,7 @@ module seven_segment_scan #(
             3'd3: begin
                 sel_active_high = 8'b0000_1000;
                 if (state == 4'd7 || state == 4'd8 || state == 4'd9)
-                    digit = (state == 4'd9) ? admin_price_input : stock_selected;
+                    digit = stock_selected;
                 else
                     digit = ((state == 4'd2) || (state >= 4'd3)) ? {2'b00, quantity} : 4'd0;
             end
@@ -141,13 +141,21 @@ module seven_segment_scan #(
             end
             3'd6: begin
                 sel_active_high = 8'b0100_0000;
-                digit = (state == 4'd7 || state == 4'd8 || state == 4'd9) ?
-                        4'd0 : ((state != 4'd0) ? tens_digit(aux_amount) : 4'd0);
+                if (state == 4'd9)
+                    digit = tens_digit(current_price);
+                else if (state == 4'd7 || state == 4'd8)
+                    digit = 4'd0;
+                else
+                    digit = (state != 4'd0) ? tens_digit(aux_amount) : 4'd0;
             end
             default: begin
                 sel_active_high = 8'b1000_0000;
-                digit = (state == 4'd7 || state == 4'd8 || state == 4'd9) ?
-                        stock_selected : ((state != 4'd0) ? ones_digit(aux_amount) : 4'd0);
+                if (state == 4'd9)
+                    digit = ones_digit(current_price);
+                else if (state == 4'd7 || state == 4'd8)
+                    digit = 4'd0;
+                else
+                    digit = (state != 4'd0) ? ones_digit(aux_amount) : 4'd0;
             end
         endcase
 

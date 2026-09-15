@@ -130,6 +130,15 @@ module vending_machine_core #(
         end
     endfunction
 
+    function order_inventory_available;
+        input unused;
+        begin
+            order_inventory_available =
+                (!has_item1 || (inventory[item1_code] >= item1_qty)) &&
+                (!has_item2 || (inventory[item2_code] >= item2_qty));
+        end
+    endfunction
+
     task clear_transaction;
         begin
             has_item1 <= 1'b0;
@@ -350,7 +359,10 @@ module vending_machine_core #(
                     end else if (key_product_pulse) begin
                         qty_next = qty_from_switch(sw[1:0]);
                         if (!can_commit_selection(pending_code, qty_next)) begin
+                            // Quantity is greater than the remaining stock:
+                            // stay in ST_SELECT_QTY and show the stock alert.
                             sold_out_pulse <= 1'b1;
+                            state <= ST_SELECT_QTY;
                         end else begin
                             commit_selection();
                             state <= ST_ORDER_READY;
@@ -376,6 +388,15 @@ module vending_machine_core #(
                             current_quantity <= item1_qty;
                         end
                         state <= ST_SELECT_QTY;
+                    end else if ((key_product_pulse &&
+                                  ((inventory[sw] == 4'd0) ||
+                                   !order_inventory_available(1'b0))) ||
+                                 (key_confirm_pulse &&
+                                  !order_inventory_available(1'b0))) begin
+                        // Freeze an order with insufficient stock in the
+                        // confirmation state.  Neither adding another item
+                        // nor entering payment is allowed.
+                        sold_out_pulse <= 1'b1;
                     end else if (key_product_pulse) begin
                         if (selected_count == 2'd2) begin
                             selection_full_pulse <= 1'b1;
@@ -385,7 +406,14 @@ module vending_machine_core #(
                             state <= ST_SELECT_PRODUCT;
                         end
                     end else if (key_confirm_pulse && (total_due != 8'd0)) begin
-                        confirm_order();
+                        // Recheck stock before entering payment.  This keeps
+                        // an invalid order in ST_ORDER_READY and prevents
+                        // payment for goods that cannot be delivered.
+                        if (!order_inventory_available(1'b0)) begin
+                            sold_out_pulse <= 1'b1;
+                        end else begin
+                            confirm_order();
+                        end
                     end
                 end
 
