@@ -15,7 +15,8 @@ module tb_selection_full;
 
     vending_machine_top #(
         .FULL_BLINK_TICKS(4),
-        .PAYMENT_ERROR_BLINK_TICKS(4)
+        .PAYMENT_ERROR_BLINK_TICKS(4),
+        .CHANGE_ERROR_BLINK_TICKS(4)
     ) dut (
         .clk(clk), .sw(sw), .key_n(4'hF), .led(led),
         .seg(seg), .sel(sel), .buzzer(buzzer)
@@ -115,6 +116,24 @@ module tb_selection_full;
         end
         if (dut.payment_error_blink_phases !== 0)
             $fatal(1, "Payment limit alert did not finish after two flashes");
+
+        // The rejected-change event uses the same two synchronized beeps and
+        // green LED flashes as the other error alerts.
+        force dut.state = 4'd6;
+        force dut.change_unavailable_pulse = 1'b1;
+        @(negedge clk);
+        force dut.change_unavailable_pulse = 1'b0;
+        @(negedge clk);
+        for (i = 0; i < 16; i = i + 1) begin
+            if (dut.change_error_blink_phases != 0 &&
+                dut.error_beep_enable !== led[0])
+                $fatal(1, "Change error beep is not synchronized with green LED");
+            @(negedge clk);
+        end
+        if (dut.change_error_blink_phases !== 0)
+            $fatal(1, "Change error alert did not finish after two flashes");
+        release dut.change_unavailable_pulse;
+        release dut.state;
         $display("PASS: selection limit preserves display and flashes green twice with synchronized beeps.");
         $finish;
     end

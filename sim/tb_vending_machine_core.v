@@ -115,6 +115,13 @@ module tb_vending_machine_core;
         pulse_change(); expect_state(ST_VEND);
         wait_cycles(4); expect_state(4'd6);
         sw = 4'b0010; pulse_confirm();
+        if (change_due !== 8'd12) $fatal(1, "20-yuan change failed");
+        // A second 20-yuan request exceeds the remaining 12 yuan. It must
+        // preserve the balance, emit no return pulse, and request an alert.
+        pulse_confirm();
+        if (change_due !== 8'd12 || return_coin_pulse !== 1'b0 ||
+            change_unavailable_pulse !== 1'b1)
+            $fatal(1, "oversized change denomination was not rejected with an alert");
         sw = 4'b0001; pulse_confirm();
         pulse_change(); pulse_change(); expect_state(ST_IDLE);
         sw = 4'h2; pulse_product(); pulse_product();

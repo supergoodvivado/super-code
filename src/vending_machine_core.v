@@ -506,6 +506,10 @@ module vending_machine_core #(
                                 clear_transaction();
                                 state <= ST_IDLE;
                             end
+                        end else begin
+                            // Reject a denomination larger than the remaining
+                            // balance and request the standard error alert.
+                            change_unavailable_pulse <= 1'b1;
                         end
                     end else if (key_change_pulse) begin
                         change_due <= change_due - 8'd1;
