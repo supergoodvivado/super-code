@@ -544,7 +544,10 @@ module vending_machine_core #(
                 end
 
                 ST_ADMIN_PRICE: begin
-                    if (key_cancel_pulse || key_change_pulse) begin
+                    if (key_cancel_pulse) begin
+                        clear_transaction();
+                        state <= ST_IDLE;
+                    end else if (key_change_pulse) begin
                         state <= ST_ADMIN_VIEW;
                     end else if (key_product_pulse) begin
                         prices[current_product_code] <= {4'd0, sw};

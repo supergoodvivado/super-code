@@ -136,6 +136,12 @@ module tb_vending_machine_core;
                      dut.prices[2], current_product_code, state, sw);
             $fatal(1, "price update failed");
         end
+
+        // In the price editor, KEY3 cancels the edit and returns to the
+        // inventory view, while KEY4 exits admin mode directly.
+        pulse_change(); expect_state(ST_ADMIN_PRICE);
+        pulse_change(); expect_state(ST_ADMIN_VIEW);
+        pulse_change(); expect_state(ST_ADMIN_PRICE);
         pulse_cancel(); expect_state(ST_IDLE);
 
         // Empty the remaining four A13 units in two orders, then verify the
