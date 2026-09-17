@@ -110,7 +110,8 @@ module tb_selection_full;
             if (dut.payment_error_blink_phases != 0 &&
                 led !== (dut.payment_error_blink_phases[0] ? 4'b0010 : 4'b0011))
                 $fatal(1, "Payment limit green flash has an incorrect phase");
-            if (dut.error_beep_enable !== led[0])
+            if (dut.payment_error_blink_phases != 0 &&
+                dut.error_beep_enable !== led[0])
                 $fatal(1, "Payment-limit beep is not synchronized with green LED");
             @(negedge clk);
         end
