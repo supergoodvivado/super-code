@@ -235,15 +235,33 @@ module vending_machine_core #(
 
     task enter_admin;
         begin
-            has_item1 <= 1'b0;
-            has_item2 <= 1'b0;
-            selected_count <= 2'd0;
-            total_due <= 8'd0;
+            // Administrator intervention must not erase the customer's
+            // retained balance or the unfinished order.
+            // Any unconfirmed payment is converted into retained balance.
+            change_due <= change_due + paid_amount;
             paid_amount <= 8'd0;
-            change_due <= 8'd0;
-            current_product_code <= 4'd0;
-            current_quantity <= 2'd0;
             state <= ST_ADMIN_SELECT;
+        end
+    endtask
+
+    task leave_admin;
+        begin
+            paid_amount <= 8'd0;
+            if (has_item2) begin
+                current_product_code <= item2_code;
+                current_quantity <= item2_qty;
+                state <= ST_ORDER_READY;
+            end else if (has_item1) begin
+                current_product_code <= item1_code;
+                current_quantity <= item1_qty;
+                state <= ST_ORDER_READY;
+            end else if (change_due != 8'd0) begin
+                current_product_code <= 4'd0;
+                current_quantity <= 2'd0;
+                state <= ST_SELECT_PRODUCT;
+            end else begin
+                state <= ST_IDLE;
+            end
         end
     endtask
 
@@ -525,8 +543,7 @@ module vending_machine_core #(
                     current_product_code <= sw;
                     current_quantity <= 2'd0;
                     if (key_cancel_pulse) begin
-                        clear_transaction();
-                        state <= ST_IDLE;
+                        leave_admin();
                     end else if (key_product_pulse) begin
                         state <= ST_ADMIN_VIEW;
                     end
@@ -535,8 +552,7 @@ module vending_machine_core #(
                 ST_ADMIN_VIEW: begin
                     current_product_code <= current_product_code;
                     if (key_cancel_pulse) begin
-                        clear_transaction();
-                        state <= ST_IDLE;
+                        leave_admin();
                     end else if (key_product_pulse) begin
                         state <= ST_ADMIN_SELECT;
                     end else if (key_confirm_pulse) begin
@@ -549,8 +565,7 @@ module vending_machine_core #(
 
                 ST_ADMIN_PRICE: begin
                     if (key_cancel_pulse) begin
-                        clear_transaction();
-                        state <= ST_IDLE;
+                        leave_admin();
                     end else if (key_change_pulse) begin
                         state <= ST_ADMIN_VIEW;
                     end else if (key_product_pulse) begin
