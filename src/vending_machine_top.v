@@ -3,7 +3,8 @@
 module vending_machine_top #(
     parameter FULL_BLINK_TICKS = 5_000_000, // 100 ms per phase at 50 MHz.
     parameter PAYMENT_ERROR_BLINK_TICKS = 5_000_000, //模型内部可修改常量
-    parameter SOLD_OUT_BLINK_TICKS = 5_000_000   //一次亮灭时间持续多久
+    parameter SOLD_OUT_BLINK_TICKS = 5_000_000,  //一次亮灭时间持续多久
+    parameter CHANGE_ERROR_BLINK_TICKS = 5_000_000
 ) (
     input wire clk,
     input wire [3:0] sw,
@@ -49,6 +50,8 @@ module vending_machine_top #(
     reg [2:0] payment_error_blink_phases;
     reg [31:0] sold_out_blink_counter;
     reg [2:0] sold_out_blink_phases;
+    reg [31:0] change_error_blink_counter;
+    reg [2:0] change_error_blink_phases;
     reg [15:0] buzzer_divider = 16'd0;
     reg [22:0] key_beep_counter = 23'd0;
     wire any_key_pulse;
@@ -73,13 +76,16 @@ module vending_machine_top #(
     assign error_alert_active = (full_blink_phases != 3'd0) ||
                                 (payment_error_blink_phases != 3'd0) ||
                                 (sold_out_blink_phases != 3'd0) ||
+                                (change_error_blink_phases != 3'd0) ||
                                 sold_out_pulse || change_unavailable_pulse;
     assign error_beep_enable = ((full_blink_phases != 3'd0) &&
                                 !full_blink_phases[0]) ||
                                ((payment_error_blink_phases != 3'd0) &&
                                 !payment_error_blink_phases[0]) ||
                                ((sold_out_blink_phases != 3'd0) &&
-                                !sold_out_blink_phases[0]);
+                                !sold_out_blink_phases[0]) ||
+                               ((change_error_blink_phases != 3'd0) &&
+                                !change_error_blink_phases[0]);
     assign normal_buzz_enable = (state == ST_VEND) |
                                 (key_beep_counter != 23'd0);
 
@@ -252,6 +258,29 @@ module vending_machine_top #(
             sold_out_blink_phases <= 3'd4;
             sold_out_blink_counter <= (SOLD_OUT_BLINK_TICKS > 0) ?
                                        SOLD_OUT_BLINK_TICKS - 1 : 0;
+        end
+    end
+
+    // Selected change denomination is larger than the remaining balance.
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            change_error_blink_counter <= 32'd0;
+            change_error_blink_phases <= 3'd0;
+        end else if (state != ST_CHANGE) begin
+            change_error_blink_counter <= 32'd0;
+            change_error_blink_phases <= 3'd0;
+        end else if (change_error_blink_phases != 3'd0) begin
+            if (change_error_blink_counter == 32'd0) begin
+                change_error_blink_phases <= change_error_blink_phases - 3'd1;
+                change_error_blink_counter <= (CHANGE_ERROR_BLINK_TICKS > 0) ?
+                                              CHANGE_ERROR_BLINK_TICKS - 1 : 0;
+            end else begin
+                change_error_blink_counter <= change_error_blink_counter - 32'd1;
+            end
+        end else if (change_unavailable_pulse) begin
+            change_error_blink_phases <= 3'd4;
+            change_error_blink_counter <= (CHANGE_ERROR_BLINK_TICKS > 0) ?
+                                          CHANGE_ERROR_BLINK_TICKS - 1 : 0;
         end
     end
 
