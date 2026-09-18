@@ -1,5 +1,6 @@
 `timescale 1ns / 1ps
 
+// 顶层集成模块：连接按键、核心状态机、数码管、指示灯和蜂鸣器。
 module vending_machine_top #(
     parameter FULL_BLINK_TICKS = 5_000_000, // 100 ms per phase at 50 MHz.
     parameter PAYMENT_ERROR_BLINK_TICKS = 5_000_000, //模型内部可修改常量
@@ -15,6 +16,7 @@ module vending_machine_top #(
     output wire buzzer
 );
 
+    // 复位、按键调理输出，以及核心状态机与显示器之间的连线。
     wire reset;
     reg [19:0] power_on_reset_count = 20'd0;
     wire power_on_reset;
@@ -42,6 +44,7 @@ module vending_machine_top #(
     wire sold_out_pulse;
     wire change_unavailable_pulse;
     wire [3:0] stock_selected;
+    // 管理员进入检测、错误闪烁和蜂鸣器定时所需的寄存器。
     reg [27:0] admin_hold_counter;       //在always中保存/更新的变量
     reg admin_enter_pulse;
     reg [31:0] full_blink_counter;
@@ -58,6 +61,7 @@ module vending_machine_top #(
     wire normal_buzz_enable;
     wire error_alert_active;
     wire error_beep_enable;
+    // 顶层需要识别的状态编码，用来驱动灯光、蜂鸣器和错误提示。
     localparam ST_PAY    = 4'd4;                   //只在这个模块内部使用，不能从外部覆盖
     localparam ST_ORDER_READY = 4'd3;
     localparam ST_VEND   = 4'd5;
@@ -66,6 +70,7 @@ module vending_machine_top #(
     localparam ST_ADMIN_VIEW = 4'd8;
     localparam ST_ADMIN_PRICE = 4'd9;
 
+    // 上电自动复位、组合复位和各类提示音控制信号。
     assign power_on_reset = power_on_reset_count != 20'hFFFFF;          //上电计数器还没数满时，power_on_reset=1，系统刚启动时处于自动复位
     assign reset = power_on_reset || ((sw == 4'hF) && cancel_level);    //二选一复位
     assign cancel_pulse = cancel_pulse_raw && (sw != 4'hF);             //
@@ -89,7 +94,7 @@ module vending_machine_top #(
     assign normal_buzz_enable = (state == ST_VEND) |
                                 (key_beep_counter != 23'd0);
 
-    // SW=1110 +长按两秒进入管理员模式
+    // SW=1110 且长按 KEY4 两秒，产生一次进入管理员模式的脉冲。
     always @(posedge clk or posedge power_on_reset) begin
         if (power_on_reset) begin
             admin_hold_counter <= 28'd0;
@@ -108,6 +113,7 @@ module vending_machine_top #(
         end
     end
 
+    // 上电复位计数、蜂鸣器分频以及每次按键后的短提示音计时。
     always @(posedge clk) begin
         if (power_on_reset_count != 20'hFFFFF) begin
             power_on_reset_count <= power_on_reset_count + 20'd1;
@@ -122,6 +128,7 @@ module vending_machine_top #(
         end
     end
 
+    // 四路按键分别消抖并转成单周期事件；KEY4 保持可用于组合复位检测。
     button_conditioner key1_cond (            //实例化硬件模块
         .clk(clk),
         .reset(reset),
@@ -154,6 +161,7 @@ module vending_machine_top #(
         .pressed_pulse(cancel_pulse_raw)
     );
 
+    // 核心状态机负责订单、库存、支付、找零和管理员功能。
     vending_machine_core core (
         .clk(clk),
         .reset(reset),
@@ -180,6 +188,7 @@ module vending_machine_top #(
         .stock_selected(stock_selected)
     );
 
+    // 显示驱动把核心状态及金额转换为八位数码管扫描输出。
     seven_segment_scan display (
         .clk(clk),
         .reset(reset),
@@ -197,7 +206,7 @@ module vending_machine_top #(
         .sel(sel)
     );
 
-    // 超过两种商品
+    // 订单已选两种商品时，绿灯按“亮灭亮灭”闪烁两次提示。
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             full_blink_counter <= 32'd0;          //这一阶段还剩多久
@@ -218,7 +227,7 @@ module vending_machine_top #(
         end
     end
 
-    // 付款不足
+    // 客户确认付款但金额不足时，绿灯按“亮灭亮灭”闪烁两次提示。
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             payment_error_blink_counter <= 32'd0;
@@ -241,7 +250,7 @@ module vending_machine_top #(
         end
     end
 
-    // 商品售罄
+    // 商品售罄或所选数量超过库存时，绿灯按“亮灭亮灭”闪烁两次提示。
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             sold_out_blink_counter <= 32'd0;
@@ -261,7 +270,7 @@ module vending_machine_top #(
         end
     end
 
-    // Selected change denomination is larger than the remaining balance.
+    // 选择的找零面额大于剩余余额时，绿灯按“亮灭亮灭”闪烁两次提示。
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             change_error_blink_counter <= 32'd0;
@@ -284,6 +293,7 @@ module vending_machine_top #(
         end
     end
 
+    // LED 映射：绿灯表示订单/错误提示，黄灯表示支付，红灯表示出货，蓝灯表示找零或管理。
     // During an alert the green order LED follows the two beep windows;
     // otherwise it remains steadily on while the order is non-empty.
     assign led[0] = ((selected_count != 2'd0) || error_alert_active) &&
@@ -295,6 +305,7 @@ module vending_machine_top #(
                     (state == ST_ADMIN_VIEW) |
                     (state == ST_ADMIN_PRICE);
 
+    // 错误提示优先占用蜂鸣器；其余时间由按键短音和出货音控制。
     // While an alert is running it owns the buzzer, preventing the ordinary
     // key-click tone from filling the silent gap between the beeps.
     assign buzzer = (error_alert_active ? error_beep_enable : normal_buzz_enable)

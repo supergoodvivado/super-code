@@ -1,5 +1,6 @@
 `timescale 1ns / 1ps
 
+// 售货机核心状态机：维护订单、库存、支付、找零和管理员设置。
 module vending_machine_core #(
     parameter VEND_TICKS = 50_000_000
 ) (
@@ -32,6 +33,7 @@ module vending_machine_core #(
     output reg payment_insufficient_pulse
 );
 
+    // 顾客流程状态及管理员流程状态的统一编码。
     localparam ST_IDLE           = 4'd0;
     localparam ST_SELECT_PRODUCT = 4'd1;
     localparam ST_SELECT_QTY     = 4'd2;
@@ -43,25 +45,30 @@ module vending_machine_core #(
     localparam ST_ADMIN_VIEW     = 4'd8;
     localparam ST_ADMIN_PRICE    = 4'd9;
 
+    // 一笔订单最多保存两种商品；每种商品分别记录编号和数量。
     reg has_item1;
     reg has_item2;
     reg [3:0] item1_code;
     reg [3:0] item2_code;
     reg [1:0] item1_qty;
     reg [1:0] item2_qty;
+    // 尚未确认数量的商品编号，以及出货/金额计算时使用的临时变量。
     reg [3:0] pending_code;
     reg [31:0] vend_counter;
     reg [7:0] money_next;
     reg [8:0] money_sum_next;
     reg [1:0] qty_next;
+    // 16 种商品的库存和单价表；sale_applied 防止出货阶段重复扣库存。
     reg [3:0] inventory [0:15];
     reg [7:0] prices [0:15];
     reg sale_applied;
     integer init_index;
 
+    // 将当前选中商品的价格和库存实时送往显示模块。
     assign current_price = prices[current_product_code];
     assign stock_selected = inventory[current_product_code];
 
+    // 根据商品编号读取单价。
     function [7:0] price_of;
         input [3:0] code;
         begin
@@ -69,6 +76,7 @@ module vending_machine_core #(
         end
     endfunction
 
+    // 将开关低两位映射为购买数量 1、2 或 3（11 也按 3 处理）。
     function [1:0] qty_from_switch;
         input [1:0] code;
         begin
@@ -81,6 +89,7 @@ module vending_machine_core #(
         end
     endfunction
 
+    // 计算一条商品明细的小计：单价 × 数量。
     function [7:0] line_total;
         input [3:0] code;
         input [1:0] qty;
@@ -96,6 +105,7 @@ module vending_machine_core #(
         end
     endfunction
 
+    // 支付阶段：开关低两位选择纸币面额 5、10、20、50 元。
     function [7:0] bill_value;
         input [1:0] code;
         begin
@@ -108,6 +118,7 @@ module vending_machine_core #(
         end
     endfunction
 
+    // 找零阶段：开关低两位选择退回面额 5、10、20 元。
     function [7:0] refund_value;
         input [1:0] code;
         begin
@@ -119,6 +130,7 @@ module vending_machine_core #(
         end
     endfunction
 
+    // 确认某个商品数量前，检查该商品当前库存是否足够。
     function can_commit_selection;
         input [3:0] code;
         input [1:0] qty;
@@ -130,6 +142,7 @@ module vending_machine_core #(
         end
     endfunction
 
+    // 支付前复查订单中所有商品的库存，防止库存不足的订单继续流转。
     function order_inventory_available;
         input unused;
         begin
@@ -139,6 +152,7 @@ module vending_machine_core #(
         end
     endfunction
 
+    // 清除完整交易，包括订单、支付金额和可找余额，回到干净的初始数据。
     task clear_transaction;
         begin
             has_item1 <= 1'b0;
@@ -202,6 +216,7 @@ module vending_machine_core #(
         end
     endtask
 
+    // 将待选商品写入订单：可新建第一/第二条明细，也可修改同一商品的数量与总价。
     task commit_selection;
         begin
             qty_next = qty_from_switch(sw[1:0]);
@@ -233,6 +248,7 @@ module vending_machine_core #(
         end
     endtask
 
+    // 进入管理员模式前清除顾客交易数据，但不改动库存和价格表。
     task enter_admin;
         begin
             has_item1 <= 1'b0;
@@ -247,6 +263,7 @@ module vending_machine_core #(
         end
     endtask
 
+    // 主时序状态机：复位时初始化商品表，正常工作时响应按键并推进售货流程。
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             state <= ST_IDLE;
@@ -271,6 +288,7 @@ module vending_machine_core #(
             sold_out_pulse <= 1'b0;
             change_unavailable_pulse <= 1'b0;
             sale_applied <= 1'b0;
+            // 所有商品初始库存为 5；下方给出各商品的默认单价。
             for (init_index = 0; init_index < 16; init_index = init_index + 1) begin
                 inventory[init_index] <= 4'd5;
             end
@@ -304,6 +322,7 @@ module vending_machine_core #(
             end else begin
 
             case (state)
+                // 空闲：KEY1 开始一笔新订单，并进入商品选择页。
                 ST_IDLE: begin
                     clear_transaction();
                     if (key_product_pulse) begin
@@ -312,6 +331,7 @@ module vending_machine_core #(
                     end
                 end
 
+                // 选择商品：SW 指定商品编号，KEY1 确认并进入数量选择。
                 ST_SELECT_PRODUCT: begin
                     current_product_code <= sw;
                     current_quantity <= 2'd0;
@@ -344,6 +364,7 @@ module vending_machine_core #(
                     end
                 end
 
+                // 选择数量：SW[1:0] 指定数量，KEY1 在库存足够时提交该条明细。
                 ST_SELECT_QTY: begin
                     current_product_code <= pending_code;
                     current_quantity <= qty_from_switch(sw[1:0]);
@@ -370,6 +391,7 @@ module vending_machine_core #(
                     end
                 end
 
+                // 订单确认页：可修改最后一条明细、添加第二种商品或进入支付。
                 ST_ORDER_READY: begin
                     paid_amount <= 8'd0;
 
@@ -417,6 +439,7 @@ module vending_machine_core #(
                     end
                 end
 
+                // 支付页：KEY1 投 1 元、KEY2 按开关投纸币、KEY3 显式确认支付。
                 ST_PAY: begin
                     if (key_cancel_pulse) begin
                         money_next = change_due + paid_amount;
@@ -466,6 +489,7 @@ module vending_machine_core #(
                     end
                 end
 
+                // 出货页：维持 VEND_TICKS 个周期，结束时仅扣减一次库存。
                 ST_VEND: begin
                     if (vend_counter == 32'd0) begin
                         if (!sale_applied) begin
@@ -486,6 +510,7 @@ module vending_machine_core #(
                     end
                 end
 
+                // 找零页：可按面额退币，也可保留余额并用 KEY1 开启下一笔订单。
                 ST_CHANGE: begin
                     if (change_due == 8'd0) begin
                         clear_transaction();
@@ -521,6 +546,7 @@ module vending_machine_core #(
                     end
                 end
 
+                // 管理员商品选择页：SW 选择要查看或维护的商品。
                 ST_ADMIN_SELECT: begin
                     current_product_code <= sw;
                     current_quantity <= 2'd0;
@@ -532,6 +558,7 @@ module vending_machine_core #(
                     end
                 end
 
+                // 管理员查看页：显示当前库存和单价；KEY2 补 1 件，KEY3 进入改价。
                 ST_ADMIN_VIEW: begin
                     current_product_code <= current_product_code;
                     if (key_cancel_pulse) begin
@@ -547,6 +574,7 @@ module vending_machine_core #(
                     end
                 end
 
+                // 管理员改价页：SW 给出新价格，KEY1 保存并返回查看页。
                 ST_ADMIN_PRICE: begin
                     if (key_cancel_pulse) begin
                         clear_transaction();
@@ -559,6 +587,7 @@ module vending_machine_core #(
                     end
                 end
 
+                // 非法状态保护：清除交易并回到空闲。
                 default: begin
                     clear_transaction();
                     state <= ST_IDLE;

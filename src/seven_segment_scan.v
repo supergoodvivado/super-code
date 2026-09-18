@@ -1,5 +1,6 @@
 `timescale 1ns / 1ps
 
+// 八位数码管动态扫描模块：按状态把售货信息拆成数字，并轮流点亮各位。
 module seven_segment_scan #(
     parameter REFRESH_BITS = 16,
     parameter SEG_ACTIVE_LOW = 1,
@@ -21,6 +22,7 @@ module seven_segment_scan #(
     output reg [7:0] sel
 );
 
+    // 刷新计数器的高三位决定当前被扫描的数码管位。
     reg [REFRESH_BITS-1:0] refresh_count;
     wire [2:0] scan_index;
     reg [3:0] digit;
@@ -40,6 +42,7 @@ module seven_segment_scan #(
                               (((state == 3'd1) || (state == 3'd2)) &&
                                (selected_count == 2'd1));
 
+    // 取金额的十位，显示时只保留十进制低两位。
     function [3:0] tens_digit;
         input [7:0] value;
         begin
@@ -47,6 +50,7 @@ module seven_segment_scan #(
         end
     endfunction
 
+    // 将内部状态编码限制为可显示的 0~9，异常编码显示 0。
     function [3:0] visible_state;
         input [3:0] raw_state;
         begin
@@ -66,6 +70,7 @@ module seven_segment_scan #(
         end
     endfunction
 
+    // 取金额的个位。
     function [3:0] ones_digit;
         input [7:0] value;
         begin
@@ -73,6 +78,7 @@ module seven_segment_scan #(
         end
     endfunction
 
+    // 数字到七段码的译码表（含小数点位，默认熄灭）。
     function [7:0] seg7;
         input [3:0] value;
         begin
@@ -92,6 +98,7 @@ module seven_segment_scan #(
         end
     endfunction
 
+    // 自由运行的刷新时钟分频计数器。
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             refresh_count <= {REFRESH_BITS{1'b0}};
@@ -100,6 +107,7 @@ module seven_segment_scan #(
         end
     end
 
+    // 显示内容组合逻辑：第 0 位为状态，1~3 位为商品/数量或库存，4~7 位为金额。
     always @* begin
         case (scan_index)
             3'd0: begin
